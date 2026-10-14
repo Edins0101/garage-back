@@ -6,11 +6,11 @@
 |---|---|---|
 | PostgreSQL 18 | Render: base `garaje_app`, región Oregon | **Si es el plan Free, vence 30 días después de crearse** y luego Render la borra. Migrar antes a Neon o pasar a un plan pago. |
 | API | Render Web Service (Docker, plan Free) | Se duerme tras unos 15 minutos sin uso; la primera petición después tarda cerca de 1 minuto. |
-| Código | GitHub (pendiente de crear el repo) | Render despliega solo en cada push. |
+| Código | GitHub: [Edins0101/garage-back](https://github.com/Edins0101/garage-back) (app: [Edins0101/garage-app](https://github.com/Edins0101/garage-app)) | Render despliega solo en cada push a `main`. |
 
 ## Primer despliegue en Render
 
-1. Sube este proyecto a un repo de GitHub, **sin `.env`** (ya está ignorado).
+1. El código ya está en GitHub (`Edins0101/garage-back`, sin `.env`).
 2. En Render: **New → Blueprint**, elige el repo. Lee `render.yaml` y crea el servicio `garaje-api`.
 3. Completa las variables que pide:
    - `DATABASE_URL`: la **Internal Database URL** de la base (host `dpg-…-a`, sin dominio). Es más rápida y no sale a internet.
