@@ -1,0 +1,32 @@
+# Desarrollo local completamente offline (API + Postgres en Docker), sin tocar Render.
+#   docker compose up --build
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: garaje
+      POSTGRES_PASSWORD: garaje
+      POSTGRES_DB: garaje
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U garaje"]
+      interval: 3s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://garaje:garaje@db:5432/garaje
+      JWT_SECRET: dev-secret-local-solo-para-docker-compose-123
+      ALLOW_DEV_LOGIN: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

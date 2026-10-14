@@ -1,0 +1,19 @@
+# Blueprint de Render: crea el servicio web de la API desde este repo.
+# La base de datos ya existe (garaje_app); su URL se pega a mano en DATABASE_URL.
+services:
+  - type: web
+    name: garaje-api
+    runtime: docker
+    plan: free
+    region: oregon            # misma región que la base de datos
+    healthCheckPath: /health
+    autoDeploy: true          # despliega en cada push a la rama principal
+    envVars:
+      - key: DATABASE_URL     # usar la "Internal Database URL" de la base en Render
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOW_DEV_LOGIN
+        value: "false"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
