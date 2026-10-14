@@ -30,7 +30,8 @@
 
 ## Login
 
-- **Producción**: "Iniciar sesión con Google". La app obtiene un ID token y llama `POST /api/auth/google`.
+- **Producción**: correo y contraseña (`/auth/register`, `/auth/login`). Debe estar `ALLOW_DEV_LOGIN=false`.
+- **Opcional, más adelante**: "Iniciar sesión con Google". La app obtiene un ID token y llama `POST /api/auth/google`.
   Requiere crear en Google Cloud un OAuth Client ID de tipo **Web** (su ID va en `GOOGLE_CLIENT_ID`)
   y otro de tipo **Android** (paquete `com.garaje.app` + huella SHA-1 del keystore).
 - **Desarrollo**: `POST /api/auth/dev {email, name}` solo funciona con `ALLOW_DEV_LOGIN=true`.
