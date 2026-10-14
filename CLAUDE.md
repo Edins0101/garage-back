@@ -40,4 +40,5 @@ Documentación interactiva con la API corriendo: http://localhost:8000/docs
 - **`.env` tiene credenciales reales: nunca subirlo a git** (ya está en `.gitignore`). La plantilla es `.env.example`.
 - Todo cambio de endpoint se refleja en `garaje-android/docs/API.md` y en `RemoteRepositories.kt`.
 - Los cambios de esquema siempre van por migración de Alembic; nunca se edita la base a mano.
+- **Nunca correr `alembic upgrade` contra la base de producción desde local.** Las migraciones las aplica Render al arrancar el contenedor. Si la base queda adelantada respecto del código desplegado, el contenedor falla en bucle con "Can't locate revision" (pasó el 2026-10-14). Probar las migraciones con `docker compose` o SQLite.
 - Antes de terminar una tarea: `pytest` en verde y actualizar `garaje-android/docs/PROGRESS.md`.
