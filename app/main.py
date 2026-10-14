@@ -26,11 +26,31 @@ async def http_error(_: Request, exc: StarletteHTTPException):
     return JSONResponse({"message": str(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
 
 
+_FIELD_NAMES = {"password": "La contraseña", "email": "El correo", "name": "El nombre", "title": "El nombre", "text": "El texto"}
+
+
+def _validation_message(error: dict) -> str:
+    """Convierte el primer error de Pydantic en un mensaje claro en español."""
+    field = str(error.get("loc", ["", ""])[-1])
+    subject = _FIELD_NAMES.get(field, f"El campo '{field}'")
+    ctx = error.get("ctx") or {}
+    match error.get("type"):
+        case "string_too_short":
+            return f"{subject} debe tener al menos {ctx.get('min_length')} caracteres"
+        case "string_too_long":
+            return f"{subject} puede tener como máximo {ctx.get('max_length')} caracteres"
+        case "missing":
+            return f"Falta {subject.lower()}"
+        case "value_error" if field == "email":
+            return "El correo no es válido"
+        case _:
+            return f"{subject} no es válido"
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(_: Request, exc: RequestValidationError):
-    first = exc.errors()[0] if exc.errors() else {}
-    field = ".".join(str(p) for p in first.get("loc", [])[1:])
-    message = f"Dato inválido en '{field}': {first.get('msg', '')}" if field else "Datos inválidos"
+    errors = exc.errors()
+    message = _validation_message(errors[0]) if errors else "Datos inválidos"
     return JSONResponse({"message": message}, status_code=422)
 
 

@@ -35,6 +35,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
+    #: Hash scrypt de la contraseña (ver app/passwords.py). Vacío si entra solo con Google.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

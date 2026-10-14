@@ -37,6 +37,17 @@ class GoogleLoginIn(ApiModel):
     id_token: str
 
 
+class RegisterIn(ApiModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+
+class LoginIn(ApiModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
 class DevLoginIn(ApiModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=120)

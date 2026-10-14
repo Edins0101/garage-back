@@ -126,3 +126,55 @@ def test_invite_code_join(client):
     # Un miembro puede salirse de la lista.
     assert client.delete(f"/api/lists/{lst['id']}/members/beto@correo.com", headers=guest).status_code == 204
     assert client.get("/api/lists", headers=guest).json() == []
+
+
+def test_register_and_login(client):
+    created = client.post(
+        "/api/auth/register", json={"name": "Ana", "email": "Ana@Correo.com", "password": "secreta123"}
+    )
+    assert created.status_code == 201
+    assert created.json()["user"]["email"] == "ana@correo.com"
+
+    # El token sirve de inmediato.
+    headers = {"Authorization": f"Bearer {created.json()['token']}"}
+    assert client.get("/api/me", headers=headers).json()["name"] == "Ana"
+
+    # No se puede registrar dos veces el mismo correo.
+    again = client.post("/api/auth/register", json={"name": "X", "email": "ana@correo.com", "password": "otra12345"})
+    assert again.status_code == 409
+
+    ok = client.post("/api/auth/login", json={"email": "ANA@correo.com", "password": "secreta123"})
+    assert ok.status_code == 200 and ok.json()["token"]
+
+    bad = client.post("/api/auth/login", json={"email": "ana@correo.com", "password": "incorrecta"})
+    assert bad.status_code == 401
+    assert bad.json() == {"message": "Correo o contraseña incorrectos"}
+
+    unknown = client.post("/api/auth/login", json={"email": "nadie@correo.com", "password": "secreta123"})
+    assert unknown.status_code == 401
+
+
+def test_register_validation(client):
+    short = client.post("/api/auth/register", json={"name": "Ana", "email": "ana@correo.com", "password": "123"})
+    assert short.status_code == 422
+    bad_email = client.post("/api/auth/register", json={"name": "Ana", "email": "no-es-correo", "password": "secreta123"})
+    assert bad_email.status_code == 422
+
+
+def test_register_accepts_pending_invites(client):
+    owner = login(client, "ana@correo.com", "Ana")
+    lst = client.post("/api/lists", json={"title": "Casa", "kind": "todo"}, headers=owner).json()
+    client.post(f"/api/lists/{lst['id']}/members", json={"email": "beto@correo.com", "role": "editor"}, headers=owner)
+
+    token = client.post(
+        "/api/auth/register", json={"name": "Beto", "email": "beto@correo.com", "password": "secreta123"}
+    ).json()["token"]
+    lists = client.get("/api/lists", headers={"Authorization": f"Bearer {token}"}).json()
+    assert [l["title"] for l in lists] == ["Casa"]
+
+
+def test_validation_messages_in_spanish(client):
+    short = client.post("/api/auth/register", json={"name": "Ana", "email": "ana@correo.com", "password": "123"})
+    assert short.json() == {"message": "La contraseña debe tener al menos 8 caracteres"}
+    bad = client.post("/api/auth/register", json={"name": "Ana", "email": "no-es-correo", "password": "secreta123"})
+    assert bad.json() == {"message": "El correo no es válido"}
