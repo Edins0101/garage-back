@@ -5,7 +5,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import engine
-from app.routers import auth, garage, lists, sharing
+from app.routers import auth, garage, lists, photos, sharing
 
 app = FastAPI(
     title="Garaje API",
@@ -15,7 +15,7 @@ app = FastAPI(
 
 # Todas las rutas de negocio viven bajo /api (la app usa API_URL=https://…/api).
 api = APIRouter(prefix="/api")
-for module in (auth, garage, lists, sharing):
+for module in (auth, garage, lists, sharing, photos):
     api.include_router(module.router)
 app.include_router(api)
 

@@ -5,7 +5,7 @@ from datetime import UTC
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_serializer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 Kind = Literal["shopping", "todo"]
@@ -162,14 +162,64 @@ class GarageSummaryOut(ApiModel):
 
 # ---------------------------------------------------------------- listas
 
+class ImageOut(ApiModel):
+    #: Enlace para mostrar la foto (firmado y temporal si es subida; tal cual si es una URL externa).
+    url: str
+    #: Identificador estable para la caché de la app (el enlace firmado cambia en cada respuesta).
+    key: str
+    source: Literal["item", "product"]
+
+
 class ItemOut(ApiModel):
     id: str
     text: str
     quantity: str | None = None
     done: bool
     done_by: str | None = None
+    product_id: str | None = None
+    image: ImageOut | None = None
     created_at: dt.datetime
     updated_at: dt.datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_image(cls, data):
+        from app.catalog import item_payload
+        from app.models import ChecklistItem
+
+        return item_payload(data) if isinstance(data, ChecklistItem) else data
+
+
+class ProductOut(ApiModel):
+    id: str
+    name: str
+    image: ImageOut | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_image(cls, data):
+        from app.catalog import product_payload
+        from app.models import Product
+
+        return product_payload(data) if isinstance(data, Product) else data
+
+
+class UploadIn(ApiModel):
+    list_id: str
+    content_type: Literal["image/jpeg", "image/webp", "image/png"] = "image/jpeg"
+
+
+class UploadOut(ApiModel):
+    upload_url: str
+    key: str
+    content_type: str
+
+
+class ImageIn(ApiModel):
+    """Una de las dos: `key` (foto ya subida con /uploads) o `url` (imagen externa https)."""
+
+    key: str | None = Field(default=None, max_length=300)
+    url: str | None = Field(default=None, max_length=2000, pattern=r"^https://")
 
 
 class MemberOut(ApiModel):

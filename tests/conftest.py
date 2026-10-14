@@ -6,6 +6,9 @@ os.environ["ALLOW_DEV_LOGIN"] = "true"
 os.environ["JWT_SECRET"] = "test-secret-de-al-menos-32-caracteres-para-hs256"
 os.environ["EMAIL_PROVIDER"] = "console"
 os.environ["REQUIRE_EMAIL_VERIFICATION"] = "true"
+# Nunca usar el bucket real en los tests (el .env local tiene claves): ver fixture fake_storage.
+for _var in ("STORAGE_ENDPOINT", "STORAGE_BUCKET", "STORAGE_KEY_ID", "STORAGE_SECRET"):
+    os.environ[_var] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -64,3 +67,41 @@ def register(client: TestClient, email: str, name: str = "Test", password: str =
         "/api/auth/register",
         json={"name": name, "email": email, "password": password, "code": last_code(email.lower())},
     )
+
+
+class FakeStorage:
+    """Bucket en memoria con la misma interfaz que app.storage.S3Storage."""
+
+    def __init__(self):
+        self.objects: dict[str, tuple[int, str]] = {}
+
+    def put(self, key: str, size: int = 1000, content_type: str = "image/jpeg") -> None:
+        """Simula que la app subió el archivo al enlace firmado."""
+        self.objects[key] = (size, content_type)
+
+    def presign_put(self, key, content_type, seconds=600):
+        return f"https://fake-storage/put/{key}"
+
+    def presign_get(self, key):
+        return f"https://fake-storage/get/{key}?sig=123"
+
+    def head(self, key):
+        from app.storage import ObjectInfo
+
+        if key not in self.objects:
+            return None
+        size, content_type = self.objects[key]
+        return ObjectInfo(size=size, content_type=content_type)
+
+    def delete(self, key):
+        self.objects.pop(key, None)
+
+
+@pytest.fixture
+def fake_storage(monkeypatch):
+    storage = FakeStorage()
+    for target in ("app.storage.get_storage", "app.catalog.get_storage"):
+        monkeypatch.setattr(target, lambda: storage)
+    for target in ("app.storage.require_storage", "app.catalog.require_storage", "app.routers.photos.require_storage"):
+        monkeypatch.setattr(target, lambda: storage)
+    return storage

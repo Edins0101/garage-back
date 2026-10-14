@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import or_, select
 
 from app.auth import CurrentUser, Db
+from app.catalog import delete_object, find_or_create_product
 from app.models import Checklist, ChecklistItem, ListMember, utcnow
 from app.permissions import Access, get_list
 from app.schemas import ChecklistOut, ItemOut, ItemPatchIn, NewItemIn, NewListIn, TitleIn
@@ -52,8 +53,11 @@ def rename(list_id: str, body: TitleIn, user: CurrentUser, db: Db):
 @router.delete("/{list_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_list(list_id: str, user: CurrentUser, db: Db):
     checklist = get_list(db, list_id, user, Access.OWNER)
+    keys = [i.image_key for i in checklist.items if i.image_key]
     db.delete(checklist)
     db.commit()
+    for key in keys:  # las fotos propias de los elementos se van con la lista (las del catálogo quedan)
+        delete_object(key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -65,7 +69,13 @@ def add_item(list_id: str, body: NewItemIn, user: CurrentUser, db: Db):
     text = body.text.strip()
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Escribe algo para agregar")
-    item = ChecklistItem(list_id=checklist.id, text=text, quantity=(body.quantity or "").strip() or None)
+    product = find_or_create_product(db, checklist.owner_id, text)
+    item = ChecklistItem(
+        list_id=checklist.id,
+        text=text,
+        quantity=(body.quantity or "").strip() or None,
+        product_id=product.id,
+    )
     db.add(item)
     _touch(checklist)
     db.commit()
@@ -84,8 +94,10 @@ def _get_item(checklist: Checklist, item_id: str) -> ChecklistItem:
 def update_item(list_id: str, item_id: str, body: ItemPatchIn, user: CurrentUser, db: Db):
     checklist = get_list(db, list_id, user, Access.EDITOR)
     item = _get_item(checklist, item_id)
-    if body.text is not None:
-        item.text = body.text.strip() or item.text
+    if body.text is not None and body.text.strip() and body.text.strip() != item.text:
+        item.text = body.text.strip()
+        # Otro nombre = otro producto del catálogo.
+        item.product_id = find_or_create_product(db, checklist.owner_id, item.text).id
     if body.quantity is not None:
         item.quantity = body.quantity.strip() or None
     if body.done is not None:
@@ -100,18 +112,25 @@ def update_item(list_id: str, item_id: str, body: ItemPatchIn, user: CurrentUser
 @router.delete("/{list_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_item(list_id: str, item_id: str, user: CurrentUser, db: Db):
     checklist = get_list(db, list_id, user, Access.EDITOR)
-    db.delete(_get_item(checklist, item_id))
+    item = _get_item(checklist, item_id)
+    key = item.image_key
+    db.delete(item)
     _touch(checklist)
     db.commit()
+    delete_object(key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{list_id}/items/clear-completed", response_model=ChecklistOut)
 def clear_completed(list_id: str, user: CurrentUser, db: Db):
     checklist = get_list(db, list_id, user, Access.EDITOR)
+    keys = []
     for item in [i for i in checklist.items if i.done]:
+        keys.append(item.image_key)
         checklist.items.remove(item)
     _touch(checklist)
     db.commit()
+    for key in keys:
+        delete_object(key)
     db.refresh(checklist)
     return checklist

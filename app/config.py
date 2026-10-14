@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     code_resend_seconds: int = 60
     code_max_per_hour: int = 5
 
+    # Fotos: almacenamiento de objetos compatible con S3 (Supabase Storage, Cloudflare R2…).
+    storage_endpoint: str = ""
+    storage_region: str = "us-east-1"
+    storage_bucket: str = ""
+    storage_key_id: str = ""
+    storage_secret: str = ""
+    max_image_bytes: int = 2 * 1024 * 1024
+    #: Espacio máximo de fotos por catálogo (dueño de listas).
+    max_storage_bytes_per_owner: int = 200 * 1024 * 1024
+    signed_url_seconds: int = 3600
+
     # Envío de correos: "console" (el código sale en los logs) o "brevo" (API HTTP).
     # Render Free bloquea SMTP, por eso se usa una API HTTP.
     email_provider: str = "console"

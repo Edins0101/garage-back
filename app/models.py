@@ -125,8 +125,29 @@ class ChecklistItem(Timestamps, Base):
     quantity: Mapped[str | None] = mapped_column(String(60))
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     done_by: Mapped[str | None] = mapped_column(String(36))
+    #: Producto del catálogo (del dueño de la lista) al que corresponde el elemento.
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"), index=True)
+    #: Foto propia del elemento (reemplaza la del producto solo aquí).
+    image_key: Mapped[str | None] = mapped_column(String(300))
+    image_size: Mapped[int | None] = mapped_column()
 
     checklist: Mapped[Checklist] = relationship(back_populates="items")
+    product: Mapped["Product"] = relationship(lazy="selectin")
+
+
+class Product(Timestamps, Base):
+    """Producto del catálogo de un usuario ("Leche"), con foto opcional. Ver docs/PLAN-FOTOS.md."""
+
+    __tablename__ = "products"
+    __table_args__ = (UniqueConstraint("owner_id", "normalized_name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    normalized_name: Mapped[str] = mapped_column(String(200))
+    image_key: Mapped[str | None] = mapped_column(String(300))
+    image_size: Mapped[int | None] = mapped_column()
+    image_url: Mapped[str | None] = mapped_column(String(2000))
 
 
 class ListMember(Base):
