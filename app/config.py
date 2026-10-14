@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     allow_dev_login: bool = False
     google_client_id: str = ""
     invite_days: int = 7
+    #: Zona horaria para saber qué día es "hoy" (el servidor corre en UTC).
+    app_timezone: str = "America/Guayaquil"
 
     # Códigos de verificación (OTP) por correo
     require_email_verification: bool = True

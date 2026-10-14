@@ -4,7 +4,9 @@ import uuid
 import datetime as dt
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, UniqueConstraint
+from decimal import Decimal
+
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -37,6 +39,12 @@ class User(Base):
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
     #: Hash scrypt de la contraseña (ver app/passwords.py). Vacío si entra solo con Google.
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    #: Tarifa por día del garaje vigente. Se copia a cada día al marcarlo.
+    garage_daily_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    #: Si está activo, cada día se marca solo con la tarifa por defecto (ver app/garage.py).
+    garage_auto_mark: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    #: Último día ya rellenado automáticamente: los días que el usuario quite no vuelven a aparecer.
+    garage_auto_filled_until: Mapped[dt.date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -50,6 +58,42 @@ class GarageDay(Timestamps, Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[dt.date] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(Text)
+    #: Tarifa de ESTE día (copia de la vigente al marcarlo): cambiar la tarifa no altera el pasado.
+    rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+
+    charges: Mapped[list["GarageCharge"]] = relationship(
+        back_populates="day",
+        cascade="all, delete-orphan",
+        order_by="GarageCharge.created_at",
+        lazy="selectin",
+    )
+
+
+class GarageCharge(Base):
+    """Cargo extra de un día (lavado, multa, llaves…). Puede haber varios por día."""
+
+    __tablename__ = "garage_charges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    day_id: Mapped[str] = mapped_column(ForeignKey("garage_days.id", ondelete="CASCADE"), index=True)
+    description: Mapped[str] = mapped_column(String(120))
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    day: Mapped[GarageDay] = relationship(back_populates="charges")
+
+
+class Payment(Base):
+    """Pago hecho al garaje."""
+
+    __tablename__ = "payments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    date: Mapped[dt.date] = mapped_column(Date)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    note: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Checklist(Timestamps, Base):

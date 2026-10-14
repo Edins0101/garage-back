@@ -2,12 +2,17 @@
 
 import datetime as dt
 from datetime import UTC
-from typing import Literal
+from decimal import Decimal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_serializer
 from pydantic.alias_generators import to_camel
 
 Kind = Literal["shopping", "todo"]
+
+#: Montos en dólares: no negativos, máximo 2 decimales.
+Money = Annotated[Decimal, Field(ge=0, le=Decimal("100000"), max_digits=10, decimal_places=2)]
+PositiveMoney = Annotated[Decimal, Field(gt=0, le=Decimal("100000"), max_digits=10, decimal_places=2)]
 Role = Literal["editor", "viewer"]
 Status = Literal["pending", "accepted"]
 
@@ -77,15 +82,82 @@ class TokenOut(ApiModel):
 
 # ---------------------------------------------------------------- garaje
 
+class ChargeOut(ApiModel):
+    id: str
+    description: str
+    amount: float
+    created_at: dt.datetime
+
+
 class GarageDayOut(ApiModel):
     date: dt.date
     note: str | None = None
+    #: Tarifa de ese día (null si no había tarifa configurada al marcarlo).
+    rate: float | None = None
+    charges: list[ChargeOut] = []
     created_at: dt.datetime
     updated_at: dt.datetime
 
+    @computed_field
+    @property
+    def total(self) -> float:
+        return round((self.rate or 0) + sum(c.amount for c in self.charges), 2)
 
-class NoteIn(ApiModel):
+
+class DayIn(ApiModel):
+    """Campos opcionales: los que no se envían no cambian."""
+
     note: str | None = Field(default=None, max_length=500)
+    rate: Money | None = None
+
+
+class ChargeIn(ApiModel):
+    description: str = Field(min_length=1, max_length=120)
+    amount: PositiveMoney
+
+
+class GarageSettingsOut(ApiModel):
+    daily_rate: float | None = None
+    auto_mark: bool = False
+    #: "Hoy" según la zona horaria de la app (útil para la UI).
+    today: dt.date
+
+
+class GarageSettingsIn(ApiModel):
+    """Campos opcionales: los que no se envían no cambian."""
+
+    daily_rate: Money | None = None
+    auto_mark: bool | None = None
+    #: Al cambiar la tarifa, aplicarla también a los días ya marcados que no tienen tarifa.
+    apply_to_days_without_rate: bool = True
+
+
+class PaymentIn(ApiModel):
+    date: dt.date
+    amount: PositiveMoney
+    note: str | None = Field(default=None, max_length=200)
+
+
+class PaymentOut(ApiModel):
+    id: str
+    date: dt.date
+    amount: float
+    note: str | None = None
+    created_at: dt.datetime
+
+
+class GarageSummaryOut(ApiModel):
+    """Cuenta del garaje hasta la fecha `until` (incluida)."""
+
+    until: dt.date
+    daily_rate: float | None
+    days: int
+    days_without_rate: int
+    days_total: float
+    charges_total: float
+    total: float
+    paid: float
+    pending: float
 
 
 # ---------------------------------------------------------------- listas
