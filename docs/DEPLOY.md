@@ -37,6 +37,24 @@
 - **Desarrollo**: `POST /api/auth/dev {email, name}` solo funciona con `ALLOW_DEV_LOGIN=true`.
   **Nunca activarlo en producción.**
 
+## Correos (códigos de verificación)
+
+Render Free **bloquea SMTP** (puertos 25/465/587), así que los correos salen por la API HTTP de **Brevo**.
+
+1. Crear una cuenta gratis en brevo.com.
+2. **Senders, domains & dedicated IPs → Senders → Add a sender**: tu correo (puede ser Gmail) y confirmarlo desde el correo que te llega.
+3. **SMTP & API → API Keys → Generate a new API key**.
+4. En Render (servicio → Environment):
+   - `EMAIL_PROVIDER` = `brevo`
+   - `BREVO_API_KEY` = la clave del paso 3
+   - `EMAIL_FROM` = el correo verificado en el paso 2
+   - `EMAIL_FROM_NAME` = `Garaje` (opcional)
+
+Mientras no esté configurado (`EMAIL_PROVIDER=console`), **el código aparece en Render → Logs**
+como `CÓDIGO 123456 para correo@... (register)`. Sirve para probar.
+
+Nota: si envías desde un Gmail, algunos correos pueden caer en spam. Con un dominio propio verificado en Brevo mejora la entrega.
+
 ## Seguridad y mantenimiento
 
 - **Rotar la contraseña de la base**: se compartió en un chat. En Render: base → Info → Credentials → nueva contraseña. Después actualizar `.env` y la variable `DATABASE_URL` del servicio.
