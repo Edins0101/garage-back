@@ -103,6 +103,22 @@ class ListMember(Base):
     checklist: Mapped[Checklist] = relationship(back_populates="members")
 
 
+class EmailCode(Base):
+    """Código de un solo uso enviado por correo (verificar cuenta o recuperar contraseña)."""
+
+    __tablename__ = "email_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    purpose: Mapped[str] = mapped_column(String(16))  # register | reset
+    #: HMAC-SHA256 del código: nunca se guarda el código en claro.
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(default=0)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Invite(Base):
     __tablename__ = "invites"
 

@@ -37,10 +37,27 @@ class GoogleLoginIn(ApiModel):
     id_token: str
 
 
+class CodeRequestIn(ApiModel):
+    email: EmailStr
+    purpose: Literal["register", "reset"]
+
+
 class RegisterIn(ApiModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    #: Código de 6 dígitos enviado al correo (obligatorio si REQUIRE_EMAIL_VERIFICATION=true).
+    code: str | None = Field(default=None, max_length=12)
+
+
+class ResetPasswordIn(ApiModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=12)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class MessageOut(ApiModel):
+    message: str
 
 
 class LoginIn(ApiModel):

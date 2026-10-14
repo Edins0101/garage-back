@@ -1,4 +1,5 @@
-from tests.conftest import login
+from app.email import _console
+from tests.conftest import last_code, login, register
 
 
 def test_requires_login(client):
@@ -129,10 +130,8 @@ def test_invite_code_join(client):
 
 
 def test_register_and_login(client):
-    created = client.post(
-        "/api/auth/register", json={"name": "Ana", "email": "Ana@Correo.com", "password": "secreta123"}
-    )
-    assert created.status_code == 201
+    created = register(client, "Ana@Correo.com", "Ana")
+    assert created.status_code == 201, created.text
     assert created.json()["user"]["email"] == "ana@correo.com"
 
     # El token sirve de inmediato.
@@ -140,7 +139,7 @@ def test_register_and_login(client):
     assert client.get("/api/me", headers=headers).json()["name"] == "Ana"
 
     # No se puede registrar dos veces el mismo correo.
-    again = client.post("/api/auth/register", json={"name": "X", "email": "ana@correo.com", "password": "otra12345"})
+    again = client.post("/api/auth/codes", json={"email": "ana@correo.com", "purpose": "register"})
     assert again.status_code == 409
 
     ok = client.post("/api/auth/login", json={"email": "ANA@correo.com", "password": "secreta123"})
@@ -166,9 +165,7 @@ def test_register_accepts_pending_invites(client):
     lst = client.post("/api/lists", json={"title": "Casa", "kind": "todo"}, headers=owner).json()
     client.post(f"/api/lists/{lst['id']}/members", json={"email": "beto@correo.com", "role": "editor"}, headers=owner)
 
-    token = client.post(
-        "/api/auth/register", json={"name": "Beto", "email": "beto@correo.com", "password": "secreta123"}
-    ).json()["token"]
+    token = register(client, "beto@correo.com", "Beto").json()["token"]
     lists = client.get("/api/lists", headers={"Authorization": f"Bearer {token}"}).json()
     assert [l["title"] for l in lists] == ["Casa"]
 
@@ -178,3 +175,58 @@ def test_validation_messages_in_spanish(client):
     assert short.json() == {"message": "La contraseña debe tener al menos 8 caracteres"}
     bad = client.post("/api/auth/register", json={"name": "Ana", "email": "no-es-correo", "password": "secreta123"})
     assert bad.json() == {"message": "El correo no es válido"}
+
+
+def test_register_requires_valid_code(client):
+    body = {"name": "Ana", "email": "ana@correo.com", "password": "secreta123"}
+    assert client.post("/api/auth/register", json=body).json() == {"message": "Falta el código que enviamos a tu correo"}
+
+    client.post("/api/auth/codes", json={"email": "ana@correo.com", "purpose": "register"})
+    code = last_code("ana@correo.com")
+    assert len(code) == 6 and code.isdigit()
+
+    wrong = client.post("/api/auth/register", json={**body, "code": "000000" if code != "000000" else "111111"})
+    assert wrong.status_code == 400
+    assert "Te quedan 4 intentos" in wrong.json()["message"]
+
+    ok = client.post("/api/auth/register", json={**body, "code": code})
+    assert ok.status_code == 201
+    # Un código no sirve dos veces.
+    assert client.post("/api/auth/codes", json={"email": "ana@correo.com", "purpose": "register"}).status_code == 409
+
+
+def test_code_attempts_and_resend_limits(client):
+    client.post("/api/auth/codes", json={"email": "ana@correo.com", "purpose": "register"})
+    code = last_code("ana@correo.com")
+    bad = "000000" if code != "000000" else "111111"
+    body = {"name": "Ana", "email": "ana@correo.com", "password": "secreta123", "code": bad}
+    for _ in range(5):
+        client.post("/api/auth/register", json=body)
+    # Tras 5 fallos, ni el código correcto sirve.
+    blocked = client.post("/api/auth/register", json={**body, "code": code})
+    assert blocked.json()["message"] == "Demasiados intentos. Pide un código nuevo."
+
+    # No se puede pedir otro código antes de 60 segundos.
+    resend = client.post("/api/auth/codes", json={"email": "ana@correo.com", "purpose": "register"})
+    assert resend.status_code == 429
+
+
+def test_password_reset(client):
+    register(client, "ana@correo.com", "Ana", password="vieja12345")
+
+    # Para un correo sin cuenta, la respuesta es igual pero no se envía nada.
+    sent_before = len(_console.outbox)
+    unknown = client.post("/api/auth/codes", json={"email": "nadie@correo.com", "purpose": "reset"})
+    assert unknown.status_code == 202
+    assert len(_console.outbox) == sent_before
+
+    assert client.post("/api/auth/codes", json={"email": "ana@correo.com", "purpose": "reset"}).status_code == 202
+    code = last_code("ana@correo.com")
+    reset = client.post(
+        "/api/auth/password/reset", json={"email": "ana@correo.com", "code": code, "password": "nueva12345"}
+    )
+    assert reset.status_code == 200 and reset.json()["token"]
+
+    assert client.post("/api/auth/login", json={"email": "ana@correo.com", "password": "vieja12345"}).status_code == 401
+    assert client.post("/api/auth/login", json={"email": "ana@correo.com", "password": "nueva12345"}).status_code == 200
+

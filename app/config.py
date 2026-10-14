@@ -14,6 +14,20 @@ class Settings(BaseSettings):
     allow_dev_login: bool = False
     google_client_id: str = ""
     invite_days: int = 7
+
+    # Códigos de verificación (OTP) por correo
+    require_email_verification: bool = True
+    code_ttl_minutes: int = 10
+    code_max_attempts: int = 5
+    code_resend_seconds: int = 60
+    code_max_per_hour: int = 5
+
+    # Envío de correos: "console" (el código sale en los logs) o "brevo" (API HTTP).
+    # Render Free bloquea SMTP, por eso se usa una API HTTP.
+    email_provider: str = "console"
+    brevo_api_key: str = ""
+    email_from: str = ""
+    email_from_name: str = "Garaje"
     #: Base de los enlaces de invitación que se comparten.
     invite_url_base: str = "garajeapp://join/"
 
