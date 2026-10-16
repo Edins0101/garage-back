@@ -146,6 +146,30 @@ class PaymentOut(ApiModel):
     created_at: dt.datetime
 
 
+TrackerIcon = Literal["car", "child", "bus", "gym", "work", "pet", "home", "other"]
+Direction = Literal["pay", "earn"]
+
+
+class TrackerIn(ApiModel):
+    name: str = Field(min_length=1, max_length=80)
+    icon: TrackerIcon = "other"
+    direction: Direction = "pay"
+    daily_rate: Money | None = None
+    auto_mark: bool = False
+
+
+class TrackerPatchIn(ApiModel):
+    """Campos opcionales: los que no se envían no cambian."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    icon: TrackerIcon | None = None
+    direction: Direction | None = None
+    daily_rate: Money | None = None
+    auto_mark: bool | None = None
+    #: Al cambiar la tarifa, aplicarla también a los días ya marcados que no tienen tarifa.
+    apply_to_days_without_rate: bool = True
+
+
 class GarageSummaryOut(ApiModel):
     """Cuenta del garaje hasta la fecha `until` (incluida)."""
 
@@ -415,3 +439,17 @@ class DoneIn(ApiModel):
     note: str | None = Field(default=None, max_length=200)
     #: Kilometraje actual (Mi carro).
     odometer: int | None = Field(default=None, ge=0, le=5_000_000)
+
+
+class TrackerOut(ApiModel):
+    """Contador con su configuración y la cuenta hasta hoy (para listarlos sin otra consulta)."""
+
+    id: str
+    name: str
+    icon: TrackerIcon
+    direction: Direction
+    daily_rate: float | None = None
+    auto_mark: bool = False
+    today: dt.date
+    summary: GarageSummaryOut
+    created_at: dt.datetime

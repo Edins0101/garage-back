@@ -15,12 +15,13 @@ app/
 ├── main.py          # App, prefijo /api, errores {"message"}, /health
 ├── config.py        # Settings desde variables de entorno o .env; normaliza la URL de Postgres
 ├── db.py            # Engine, sesión y Base
-├── models.py        # Tablas: users, garage_days, checklists, checklist_items, list_members, invites,
+├── models.py        # Tablas: users, trackers (contadores), garage_days, payments, checklists, list_members, invites,
 │                    #   spaces, space_members, reminders, reminder_logs (recordatorios)
 ├── schemas.py       # JSON en camelCase (igual que los modelos Kotlin); fechas UTC con "Z"
 ├── auth.py          # JWT propio, login con Google, invitaciones pendientes al iniciar sesión
 ├── permissions.py   # Acceso a listas: OWNER > EDITOR > VIEWER > NONE (NONE responde 404)
 ├── reminders.py     # Repetición de fechas (meses con día original) y acceso a las secciones
+├── garage.py        # Contadores por día: marcado automático y cuenta (el garaje es un contador más)
 └── routers/         # auth, garage, lists, sharing, photos, devices, reminders
 alembic/             # Migraciones (la URL sale de DATABASE_URL)
 tests/               # pytest sobre SQLite en memoria (nunca tocan la base real)

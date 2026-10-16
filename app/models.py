@@ -39,22 +39,36 @@ class User(Base):
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
     #: Hash scrypt de la contraseña (ver app/passwords.py). Vacío si entra solo con Google.
     password_hash: Mapped[str | None] = mapped_column(String(255))
-    #: Tarifa por día del garaje vigente. Se copia a cada día al marcarlo.
-    garage_daily_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    #: Si está activo, cada día se marca solo con la tarifa por defecto (ver app/garage.py).
-    garage_auto_mark: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    #: Último día ya rellenado automáticamente: los días que el usuario quite no vuelven a aparecer.
-    garage_auto_filled_until: Mapped[dt.date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class GarageDay(Timestamps, Base):
-    """Un día en que el carro del usuario está en el garaje (cada usuario tiene su calendario)."""
+class Tracker(Timestamps, Base):
+    """Contador por día: el garaje, la niñera, el expreso… o los días trabajados (ver app/garage.py)."""
 
-    __tablename__ = "garage_days"
-    __table_args__ = (UniqueConstraint("user_id", "date"),)
+    __tablename__ = "trackers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    icon: Mapped[str] = mapped_column(String(16), default="car")
+    #: "pay" = yo pago (garaje, niñera); "earn" = me pagan (días trabajados).
+    direction: Mapped[str] = mapped_column(String(8), default="pay", server_default="pay")
+    #: Tarifa por día vigente. Se copia a cada día al marcarlo.
+    daily_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    #: Si está activo, cada día se marca solo con la tarifa por defecto.
+    auto_mark: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    #: Último día ya rellenado automáticamente: los días que el usuario quite no vuelven a aparecer.
+    auto_filled_until: Mapped[dt.date | None] = mapped_column(Date)
+
+
+class GarageDay(Timestamps, Base):
+    """Un día marcado en un contador (la tabla conserva el nombre de cuando solo existía el garaje)."""
+
+    __tablename__ = "garage_days"
+    __table_args__ = (UniqueConstraint("tracker_id", "date"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tracker_id: Mapped[str] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[dt.date] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(Text)
@@ -84,11 +98,12 @@ class GarageCharge(Base):
 
 
 class Payment(Base):
-    """Pago hecho al garaje."""
+    """Pago de un contador (al garaje, a la niñera… o lo que me pagaron)."""
 
     __tablename__ = "payments"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tracker_id: Mapped[str] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     date: Mapped[dt.date] = mapped_column(Date)
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))

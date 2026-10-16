@@ -1,12 +1,19 @@
+"""Contadores por día (garaje, niñera, expreso, días trabajados…).
+
+Rutas nuevas: /trackers y /trackers/{id}/… (ver garaje-android/docs/API.md → Contadores).
+Las rutas /garage*, /garage-days y /payments de versiones anteriores de la app siguen
+funcionando sobre el primer contador del usuario (que se crea como "Mi garaje" si no hay).
+"""
+
 import datetime as dt
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, select, update
 
 from app.auth import CurrentUser, Db
-from app.garage import backfill_auto_days, summary, today
-from app.models import GarageCharge, GarageDay, Payment
+from app.garage import backfill_auto_days, default_tracker, summary, today
+from app.models import GarageCharge, GarageDay, Payment, Tracker
 from app.schemas import (
     ChargeIn,
     ChargeOut,
@@ -17,69 +24,87 @@ from app.schemas import (
     GarageSummaryOut,
     PaymentIn,
     PaymentOut,
+    TrackerIn,
+    TrackerOut,
+    TrackerPatchIn,
 )
 
-router = APIRouter(tags=["garaje"])
+router = APIRouter(tags=["contadores"])
+
+From = Annotated[dt.date | None, Query(alias="from")]
 
 
-# ---------------------------------------------------------------- configuración
-
-def _settings_out(user) -> GarageSettingsOut:
-    rate = float(user.garage_daily_rate) if user.garage_daily_rate is not None else None
-    return GarageSettingsOut(daily_rate=rate, auto_mark=user.garage_auto_mark, today=today())
+def _legacy_tracker(user: CurrentUser, db: Db) -> Tracker:
+    return default_tracker(db, user)
 
 
-@router.get("/garage/settings", response_model=GarageSettingsOut)
-def get_settings_(user: CurrentUser):
-    return _settings_out(user)
+def _path_tracker(tracker_id: str, user: CurrentUser, db: Db) -> Tracker:
+    tracker = db.get(Tracker, tracker_id)
+    if tracker is None or tracker.owner_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El contador no existe")
+    return tracker
 
 
-@router.put("/garage/settings", response_model=GarageSettingsOut)
-def put_settings(body: GarageSettingsIn, user: CurrentUser, db: Db):
+Legacy = Annotated[Tracker, Depends(_legacy_tracker)]
+ByPath = Annotated[Tracker, Depends(_path_tracker)]
+
+
+# ---------------------------------------------------------------- lógica común
+
+def _settings_out(tracker: Tracker) -> GarageSettingsOut:
+    rate = float(tracker.daily_rate) if tracker.daily_rate is not None else None
+    return GarageSettingsOut(daily_rate=rate, auto_mark=tracker.auto_mark, today=today())
+
+
+def _tracker_out(db, tracker: Tracker) -> TrackerOut:
+    backfill_auto_days(db, tracker)
+    settings = _settings_out(tracker)
+    return TrackerOut(
+        id=tracker.id,
+        name=tracker.name,
+        icon=tracker.icon,
+        direction=tracker.direction,
+        daily_rate=settings.daily_rate,
+        auto_mark=tracker.auto_mark,
+        today=settings.today,
+        summary=GarageSummaryOut(**summary(db, tracker, today())),
+        created_at=tracker.created_at,
+    )
+
+
+def _apply_settings(db, tracker: Tracker, sent: set[str], daily_rate, auto_mark, apply_to_days_without_rate: bool):
     # Primero se rellenan los días automáticos pendientes con la tarifa ANTERIOR.
-    backfill_auto_days(db, user)
-
-    if "daily_rate" in body.model_fields_set:
-        user.garage_daily_rate = body.daily_rate
-        if body.daily_rate is not None and body.apply_to_days_without_rate:
+    backfill_auto_days(db, tracker)
+    if "daily_rate" in sent:
+        tracker.daily_rate = daily_rate
+        if daily_rate is not None and apply_to_days_without_rate:
             db.execute(
                 update(GarageDay)
-                .where(GarageDay.user_id == user.id, GarageDay.rate.is_(None))
-                .values(rate=body.daily_rate)
+                .where(GarageDay.tracker_id == tracker.id, GarageDay.rate.is_(None))
+                .values(rate=daily_rate)
             )
-
-    if body.auto_mark is not None and body.auto_mark != user.garage_auto_mark:
-        user.garage_auto_mark = body.auto_mark
-        if body.auto_mark:
+    if auto_mark is not None and auto_mark != tracker.auto_mark:
+        tracker.auto_mark = auto_mark
+        if auto_mark:
             # Empieza a contar desde hoy (no rellena el pasado).
-            user.garage_auto_filled_until = today() - dt.timedelta(days=1)
+            tracker.auto_filled_until = today() - dt.timedelta(days=1)
     db.commit()
-    backfill_auto_days(db, user)
-    return _settings_out(user)
+    backfill_auto_days(db, tracker)
 
 
-@router.get("/garage/summary", response_model=GarageSummaryOut)
-def get_summary(user: CurrentUser, db: Db, until: dt.date | None = None):
-    """Cuánto se debe hasta `until` (por defecto, hoy)."""
-    backfill_auto_days(db, user)
-    return summary(db, user, until or today())
+def _get_day(db, tracker: Tracker, day: dt.date) -> GarageDay | None:
+    return db.scalar(select(GarageDay).where(GarageDay.tracker_id == tracker.id, GarageDay.date == day))
 
 
-# ---------------------------------------------------------------- días
+def _new_day(db, tracker: Tracker, day: dt.date) -> GarageDay:
+    garage_day = GarageDay(tracker_id=tracker.id, user_id=tracker.owner_id, date=day, rate=tracker.daily_rate)
+    db.add(garage_day)
+    return garage_day
 
-def _get_day(db, user, day: dt.date) -> GarageDay | None:
-    return db.scalar(select(GarageDay).where(GarageDay.user_id == user.id, GarageDay.date == day))
 
-
-@router.get("/garage-days", response_model=list[GarageDayOut])
-def list_days(
-    user: CurrentUser,
-    db: Db,
-    from_: Annotated[dt.date | None, Query(alias="from")] = None,
-    to: dt.date | None = None,
-):
-    backfill_auto_days(db, user)
-    query = select(GarageDay).where(GarageDay.user_id == user.id)
+def _list_days(db, tracker: Tracker, from_: dt.date | None, to: dt.date | None):
+    backfill_auto_days(db, tracker)
+    query = select(GarageDay).where(GarageDay.tracker_id == tracker.id)
     if from_:
         query = query.where(GarageDay.date >= from_)
     if to:
@@ -87,13 +112,9 @@ def list_days(
     return db.scalars(query.order_by(GarageDay.date)).all()
 
 
-@router.put("/garage-days/{day}", response_model=GarageDayOut)
-def set_day(day: dt.date, body: DayIn, user: CurrentUser, db: Db):
+def _set_day(db, tracker: Tracker, day: dt.date, body: DayIn) -> GarageDay:
     """Crea o actualiza el día. Al crearlo toma la tarifa vigente si no se envía otra."""
-    garage_day = _get_day(db, user, day)
-    if garage_day is None:
-        garage_day = GarageDay(user_id=user.id, date=day, rate=user.garage_daily_rate)
-        db.add(garage_day)
+    garage_day = _get_day(db, tracker, day) or _new_day(db, tracker, day)
     if "note" in body.model_fields_set:
         garage_day.note = (body.note or "").strip() or None
     if "rate" in body.model_fields_set:
@@ -103,24 +124,19 @@ def set_day(day: dt.date, body: DayIn, user: CurrentUser, db: Db):
     return garage_day
 
 
-@router.delete("/garage-days/{day}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_day(day: dt.date, user: CurrentUser, db: Db):
-    garage_day = _get_day(db, user, day)
+def _remove_day(db, tracker: Tracker, day: dt.date) -> Response:
+    garage_day = _get_day(db, tracker, day)
     if garage_day is not None:
         db.delete(garage_day)  # borra también sus cargos
         db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ---------------------------------------------------------------- cargos extra
-
-@router.post("/garage-days/{day}/charges", response_model=ChargeOut, status_code=status.HTTP_201_CREATED)
-def add_charge(day: dt.date, body: ChargeIn, user: CurrentUser, db: Db):
+def _add_charge(db, tracker: Tracker, day: dt.date, body: ChargeIn) -> GarageCharge:
     """Agrega un cargo al día. Si el día no estaba marcado, lo marca."""
-    garage_day = _get_day(db, user, day)
+    garage_day = _get_day(db, tracker, day)
     if garage_day is None:
-        garage_day = GarageDay(user_id=user.id, date=day, rate=user.garage_daily_rate)
-        db.add(garage_day)
+        garage_day = _new_day(db, tracker, day)
         db.flush()
     charge = GarageCharge(day_id=garage_day.id, description=body.description.strip(), amount=body.amount)
     db.add(charge)
@@ -129,37 +145,197 @@ def add_charge(day: dt.date, body: ChargeIn, user: CurrentUser, db: Db):
     return charge
 
 
-@router.delete("/garage-charges/{charge_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_charge(charge_id: str, user: CurrentUser, db: Db):
-    owned_days = select(GarageDay.id).where(GarageDay.user_id == user.id)
-    result = db.execute(delete(GarageCharge).where(GarageCharge.id == charge_id, GarageCharge.day_id.in_(owned_days)))
+def _remove_charge(db, tracker_ids, charge_id: str) -> Response:
+    days = select(GarageDay.id).where(GarageDay.tracker_id.in_(tracker_ids))
+    result = db.execute(delete(GarageCharge).where(GarageCharge.id == charge_id, GarageCharge.day_id.in_(days)))
     if result.rowcount == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "El cargo no existe")
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ---------------------------------------------------------------- pagos
-
-@router.get("/payments", response_model=list[PaymentOut])
-def list_payments(user: CurrentUser, db: Db):
-    query = select(Payment).where(Payment.user_id == user.id).order_by(Payment.date.desc(), Payment.created_at.desc())
+def _list_payments(db, tracker: Tracker):
+    query = (
+        select(Payment)
+        .where(Payment.tracker_id == tracker.id)
+        .order_by(Payment.date.desc(), Payment.created_at.desc())
+    )
     return db.scalars(query).all()
 
 
-@router.post("/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
-def add_payment(body: PaymentIn, user: CurrentUser, db: Db):
-    payment = Payment(user_id=user.id, date=body.date, amount=body.amount, note=(body.note or "").strip() or None)
+def _add_payment(db, tracker: Tracker, body: PaymentIn) -> Payment:
+    payment = Payment(
+        tracker_id=tracker.id,
+        user_id=tracker.owner_id,
+        date=body.date,
+        amount=body.amount,
+        note=(body.note or "").strip() or None,
+    )
     db.add(payment)
     db.commit()
     db.refresh(payment)
     return payment
 
 
-@router.delete("/payments/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_payment(payment_id: str, user: CurrentUser, db: Db):
-    result = db.execute(delete(Payment).where(Payment.id == payment_id, Payment.user_id == user.id))
+def _remove_payment(db, tracker_ids, payment_id: str) -> Response:
+    result = db.execute(delete(Payment).where(Payment.id == payment_id, Payment.tracker_id.in_(tracker_ids)))
     if result.rowcount == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "El pago no existe")
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _my_tracker_ids(user):
+    return select(Tracker.id).where(Tracker.owner_id == user.id)
+
+
+# ---------------------------------------------------------------- contadores
+
+@router.get("/trackers", response_model=list[TrackerOut])
+def list_trackers(user: CurrentUser, db: Db):
+    """Mis contadores con la cuenta hasta hoy, en el orden en que se crearon."""
+    trackers = db.scalars(select(Tracker).where(Tracker.owner_id == user.id).order_by(Tracker.created_at)).all()
+    return [_tracker_out(db, t) for t in trackers]
+
+
+@router.post("/trackers", response_model=TrackerOut, status_code=status.HTTP_201_CREATED)
+def create_tracker(body: TrackerIn, user: CurrentUser, db: Db):
+    tracker = Tracker(
+        owner_id=user.id,
+        name=body.name.strip(),
+        icon=body.icon,
+        direction=body.direction,
+        daily_rate=body.daily_rate,
+        auto_mark=body.auto_mark,
+        auto_filled_until=today() - dt.timedelta(days=1) if body.auto_mark else None,
+    )
+    db.add(tracker)
+    db.commit()
+    db.refresh(tracker)
+    return _tracker_out(db, tracker)
+
+
+@router.patch("/trackers/{tracker_id}", response_model=TrackerOut)
+def update_tracker(body: TrackerPatchIn, tracker: ByPath, db: Db):
+    if body.name:
+        tracker.name = body.name.strip()
+    if body.icon:
+        tracker.icon = body.icon
+    if body.direction:
+        tracker.direction = body.direction
+    _apply_settings(db, tracker, body.model_fields_set, body.daily_rate, body.auto_mark, body.apply_to_days_without_rate)
+    db.refresh(tracker)
+    return _tracker_out(db, tracker)
+
+
+@router.delete("/trackers/{tracker_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tracker(tracker: ByPath, db: Db):
+    db.delete(tracker)  # se van sus días, cargos y pagos
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/trackers/{tracker_id}/summary", response_model=GarageSummaryOut)
+def tracker_summary(tracker: ByPath, db: Db, until: dt.date | None = None):
+    backfill_auto_days(db, tracker)
+    return summary(db, tracker, until or today())
+
+
+@router.get("/trackers/{tracker_id}/days", response_model=list[GarageDayOut])
+def tracker_days(tracker: ByPath, db: Db, from_: From = None, to: dt.date | None = None):
+    return _list_days(db, tracker, from_, to)
+
+
+@router.put("/trackers/{tracker_id}/days/{day}", response_model=GarageDayOut)
+def tracker_set_day(day: dt.date, body: DayIn, tracker: ByPath, db: Db):
+    return _set_day(db, tracker, day, body)
+
+
+@router.delete("/trackers/{tracker_id}/days/{day}", status_code=status.HTTP_204_NO_CONTENT)
+def tracker_remove_day(day: dt.date, tracker: ByPath, db: Db):
+    return _remove_day(db, tracker, day)
+
+
+@router.post("/trackers/{tracker_id}/days/{day}/charges", response_model=ChargeOut, status_code=status.HTTP_201_CREATED)
+def tracker_add_charge(day: dt.date, body: ChargeIn, tracker: ByPath, db: Db):
+    return _add_charge(db, tracker, day, body)
+
+
+@router.delete("/trackers/{tracker_id}/charges/{charge_id}", status_code=status.HTTP_204_NO_CONTENT)
+def tracker_remove_charge(charge_id: str, tracker: ByPath, db: Db):
+    return _remove_charge(db, [tracker.id], charge_id)
+
+
+@router.get("/trackers/{tracker_id}/payments", response_model=list[PaymentOut])
+def tracker_payments(tracker: ByPath, db: Db):
+    return _list_payments(db, tracker)
+
+
+@router.post("/trackers/{tracker_id}/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
+def tracker_add_payment(body: PaymentIn, tracker: ByPath, db: Db):
+    return _add_payment(db, tracker, body)
+
+
+@router.delete("/trackers/{tracker_id}/payments/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def tracker_remove_payment(payment_id: str, tracker: ByPath, db: Db):
+    return _remove_payment(db, [tracker.id], payment_id)
+
+
+# ---------------------------------------------------------------- rutas anteriores (primer contador)
+
+@router.get("/garage/settings", response_model=GarageSettingsOut)
+def get_settings_(tracker: Legacy):
+    return _settings_out(tracker)
+
+
+@router.put("/garage/settings", response_model=GarageSettingsOut)
+def put_settings(body: GarageSettingsIn, tracker: Legacy, db: Db):
+    _apply_settings(db, tracker, body.model_fields_set, body.daily_rate, body.auto_mark, body.apply_to_days_without_rate)
+    return _settings_out(tracker)
+
+
+@router.get("/garage/summary", response_model=GarageSummaryOut)
+def get_summary(tracker: Legacy, db: Db, until: dt.date | None = None):
+    """Cuánto se debe hasta `until` (por defecto, hoy)."""
+    backfill_auto_days(db, tracker)
+    return summary(db, tracker, until or today())
+
+
+@router.get("/garage-days", response_model=list[GarageDayOut])
+def list_days(tracker: Legacy, db: Db, from_: From = None, to: dt.date | None = None):
+    return _list_days(db, tracker, from_, to)
+
+
+@router.put("/garage-days/{day}", response_model=GarageDayOut)
+def set_day(day: dt.date, body: DayIn, tracker: Legacy, db: Db):
+    return _set_day(db, tracker, day, body)
+
+
+@router.delete("/garage-days/{day}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_day(day: dt.date, tracker: Legacy, db: Db):
+    return _remove_day(db, tracker, day)
+
+
+@router.post("/garage-days/{day}/charges", response_model=ChargeOut, status_code=status.HTTP_201_CREATED)
+def add_charge(day: dt.date, body: ChargeIn, tracker: Legacy, db: Db):
+    return _add_charge(db, tracker, day, body)
+
+
+@router.delete("/garage-charges/{charge_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_charge(charge_id: str, user: CurrentUser, db: Db):
+    return _remove_charge(db, _my_tracker_ids(user), charge_id)
+
+
+@router.get("/payments", response_model=list[PaymentOut])
+def list_payments(tracker: Legacy, db: Db):
+    return _list_payments(db, tracker)
+
+
+@router.post("/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
+def add_payment(body: PaymentIn, tracker: Legacy, db: Db):
+    return _add_payment(db, tracker, body)
+
+
+@router.delete("/payments/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_payment(payment_id: str, user: CurrentUser, db: Db):
+    return _remove_payment(db, _my_tracker_ids(user), payment_id)
