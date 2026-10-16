@@ -298,7 +298,7 @@ class JoinOut(ApiModel):
 
 # ---------------------------------------------------------------- recordatorios
 
-SpaceKind = Literal["payments", "home", "car"]
+SpaceKind = Literal["payments", "home", "car", "other"]
 Unit = Literal["day", "week", "month", "year"]
 CountFrom = Literal["due", "done"]
 
@@ -331,6 +331,7 @@ class ReminderLogOut(ApiModel):
     due_date: dt.date
     amount: float | None = None
     note: str | None = None
+    odometer: int | None = None
     done_by: str | None = None
     done_by_name: str | None = None
     created_at: dt.datetime
@@ -347,6 +348,7 @@ class ReminderOut(ApiModel):
     next_due: dt.date
     notify_days_before: int
     count_from: CountFrom = "due"
+    every_km: int | None = None
     note: str | None = None
     finished: bool
     last_done: ReminderLogOut | None = None
@@ -361,7 +363,7 @@ class ReminderOut(ApiModel):
         if isinstance(data, Reminder):
             fields = {name: getattr(data, name) for name in (
                 "id", "space_id", "title", "amount", "every", "unit", "next_due", "notify_days_before",
-                "count_from", "note", "finished", "created_at", "updated_at",
+                "count_from", "every_km", "note", "finished", "created_at", "updated_at",
             )}
             return {**fields, "kind": data.space.kind, "last_done": data.logs[0] if data.logs else None}
         return data
@@ -384,6 +386,7 @@ class NewReminderIn(ApiModel):
     notify_days_before: int = Field(default=2, ge=0, le=60)
     #: Si no se envía: "due" en pagos y "done" en Mi hogar / Mi carro.
     count_from: CountFrom | None = None
+    every_km: int | None = Field(default=None, ge=100, le=200_000)
     note: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -402,6 +405,7 @@ class ReminderPatchIn(ApiModel):
     next_due: dt.date | None = None
     notify_days_before: int | None = Field(default=None, ge=0, le=60)
     count_from: CountFrom | None = None
+    every_km: int | None = Field(default=None, ge=100, le=200_000)
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -409,3 +413,5 @@ class DoneIn(ApiModel):
     #: Lo que realmente se pagó (por defecto, el monto estimado).
     amount: Money | None = None
     note: str | None = Field(default=None, max_length=200)
+    #: Kilometraje actual (Mi carro).
+    odometer: int | None = Field(default=None, ge=0, le=5_000_000)

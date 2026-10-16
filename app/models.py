@@ -219,7 +219,7 @@ class Space(Timestamps, Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(16))  # payments | home | car
+    kind: Mapped[str] = mapped_column(String(16))  # payments | home | car | other
 
     owner: Mapped[User] = relationship(lazy="selectin")
     members: Mapped[list["SpaceMember"]] = relationship(
@@ -268,6 +268,9 @@ class Reminder(Timestamps, Base):
     #: Desde dónde se cuenta el siguiente: "due" (la fecha que vencía, ej. la luz) o
     #: "done" (el día que se hizo, ej. limpiar el aire cada 3 meses desde la última limpieza).
     count_from: Mapped[str] = mapped_column(String(8), default="due", server_default="due")
+    #: Mi carro: también cada tantos km (ej. aceite cada 3 meses o 5.000 km). Solo informativo:
+    #: los avisos son por fecha; la app muestra a qué kilometraje toca según el último registrado.
+    every_km: Mapped[int | None] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
     #: Recordatorio de una sola vez ya hecho.
     finished: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -292,6 +295,8 @@ class ReminderLog(Base):
     due_date: Mapped[dt.date] = mapped_column(Date)
     amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     note: Mapped[str | None] = mapped_column(String(200))
+    #: Kilometraje del carro cuando se hizo (Mi carro).
+    odometer: Mapped[int | None] = mapped_column(Integer)
     done_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     done_by_name: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

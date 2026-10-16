@@ -169,3 +169,23 @@ def test_home_counts_from_the_day_it_was_done(client, monkeypatch):
     patched = client.patch(f"/api/reminders/{luz['id']}", json={"countFrom": "done"}, headers=ana).json()
     assert patched["countFrom"] == "done"
     assert client.get("/api/reminders", params={"kind": "home"}, headers=ana).json()[0]["title"] == "Limpiar el aire"
+
+
+def test_all_sections_at_once_and_car_kilometers(client):
+    ana = login(client, "ana@correo.com", "Ana")
+    _new(client, ana)  # Luz (pagos)
+    _new(client, ana, kind="other", title="Cumpleaños de mamá", amount=None, every=1, unit="year", nextDue="2026-03-08")
+    aceite = _new(client, ana, kind="car", title="Cambio de aceite", amount="45", every=3, everyKm=5000, nextDue="2026-02-01")
+    assert aceite["everyKm"] == 5000 and aceite["countFrom"] == "done"
+
+    # Sin kind: todo junto, por fecha; y una sección propia por cada tipo.
+    everything = client.get("/api/reminders", headers=ana).json()
+    assert [(r["kind"], r["title"]) for r in everything] == [
+        ("payments", "Luz"), ("car", "Cambio de aceite"), ("other", "Cumpleaños de mamá"),
+    ]
+    assert [s["kind"] for s in client.get("/api/spaces", headers=ana).json()] == ["payments", "home", "car", "other"]
+    assert len(client.get("/api/reminders", params={"kind": "car"}, headers=ana).json()) == 1
+
+    done = client.post(f"/api/reminders/{aceite['id']}/done", json={"odometer": 45300}, headers=ana).json()
+    assert done["lastDone"]["odometer"] == 45300
+    assert client.patch(f"/api/reminders/{aceite['id']}", json={"everyKm": None}, headers=ana).json()["everyKm"] is None

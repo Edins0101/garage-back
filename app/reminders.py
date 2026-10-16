@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app.models import Reminder, Space, User
 from app.permissions import Access, access_level
 
-KIND_LABELS = {"payments": "Pagos", "home": "Mi hogar", "car": "Mi carro"}
+KIND_LABELS = {"payments": "Pagos", "home": "Mi hogar", "car": "Mi carro", "other": "Recordatorios"}
+KINDS = tuple(KIND_LABELS)
 
 
 def add_months(date: dt.date, months: int, anchor_day: int | None = None) -> dt.date:
@@ -36,7 +37,7 @@ def advance(due: dt.date, every: int, unit: str, anchor_day: int | None) -> dt.d
 
 
 #: Por defecto: los pagos tienen fecha fija; los mantenimientos se cuentan desde que se hicieron.
-DEFAULT_COUNT_FROM = {"payments": "due", "home": "done", "car": "done"}
+DEFAULT_COUNT_FROM = {"payments": "due", "home": "done", "car": "done", "other": "due"}
 
 
 def mark_done(reminder: Reminder, done_on: dt.date) -> None:

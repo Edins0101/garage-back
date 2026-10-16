@@ -11,7 +11,7 @@ from app.models import Reminder, ReminderLog, Space, SpaceMember, User
 from app.permissions import Access, access_level
 from app.push import device_tokens, recipients, reminder_added_push, reminder_done_push, send_push
 from app.garage import today
-from app.reminders import DEFAULT_COUNT_FROM, get_reminder, get_space, mark_done, own_space
+from app.reminders import DEFAULT_COUNT_FROM, KINDS, get_reminder, get_space, mark_done, own_space
 from app.schemas import (
     DoneIn,
     InviteIn,
@@ -27,13 +27,17 @@ from app.schemas import (
 router = APIRouter(tags=["recordatorios"])
 
 
-def _accessible_spaces(db: Db, user: User, kind: str) -> list[Space]:
-    """La sección propia (se crea si no existe) y las compartidas conmigo, de ese tipo."""
-    own = own_space(db, user, kind)
+def _accessible_spaces(db: Db, user: User, kind: str | None) -> list[Space]:
+    """Las secciones propias (se crean si no existen) y las compartidas conmigo; de un tipo o de todos."""
+    kinds = [kind] if kind else list(KINDS)
+    own_ids = [own_space(db, user, k).id for k in kinds]
     db.commit()
     shared_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user.id)
-    query = select(Space).where(Space.kind == kind, or_(Space.id == own.id, Space.id.in_(shared_ids)))
-    return sorted(db.scalars(query).all(), key=lambda s: (s.owner_id != user.id, s.owner.name.lower()))
+    query = select(Space).where(Space.kind.in_(kinds), or_(Space.id.in_(own_ids), Space.id.in_(shared_ids)))
+    return sorted(
+        db.scalars(query).all(),
+        key=lambda s: (s.owner_id != user.id, s.owner.name.lower(), KINDS.index(s.kind)),
+    )
 
 
 def _notify(db: Db, background: BackgroundTasks, space: Space, actor: User, push) -> None:
@@ -44,7 +48,7 @@ def _notify(db: Db, background: BackgroundTasks, space: Space, actor: User, push
 # ---------------------------------------------------------------- secciones
 
 @router.get("/spaces", response_model=list[SpaceOut])
-def spaces(user: CurrentUser, db: Db, kind: SpaceKind = Query()):
+def spaces(user: CurrentUser, db: Db, kind: SpaceKind | None = Query(default=None)):
     return _accessible_spaces(db, user, kind)
 
 
@@ -89,8 +93,8 @@ def remove_member(space_id: str, email: str, user: CurrentUser, db: Db):
 # ---------------------------------------------------------------- recordatorios
 
 @router.get("/reminders", response_model=list[ReminderOut])
-def reminders(user: CurrentUser, db: Db, kind: SpaceKind = Query()):
-    """Todos los recordatorios de ese tipo que puedo ver, por fecha de vencimiento."""
+def reminders(user: CurrentUser, db: Db, kind: SpaceKind | None = Query(default=None)):
+    """Los recordatorios que puedo ver (de un tipo o de todos), por fecha de vencimiento."""
     ids = [s.id for s in _accessible_spaces(db, user, kind)]
     query = select(Reminder).where(Reminder.space_id.in_(ids)).order_by(Reminder.next_due, Reminder.title)
     return db.scalars(query).all()
@@ -114,6 +118,7 @@ def create_reminder(body: NewReminderIn, user: CurrentUser, db: Db, background: 
         next_due=body.next_due,
         notify_days_before=body.notify_days_before,
         count_from=body.count_from or DEFAULT_COUNT_FROM[body.kind],
+        every_km=body.every_km,
         note=(body.note or "").strip() or None,
         created_by=user.id,
     )
@@ -144,6 +149,8 @@ def update_reminder(reminder_id: str, body: ReminderPatchIn, user: CurrentUser, 
         reminder.notify_days_before = body.notify_days_before
     if "count_from" in sent and body.count_from:
         reminder.count_from = body.count_from
+    if "every_km" in sent:
+        reminder.every_km = body.every_km
     if "next_due" in sent and body.next_due:
         reminder.next_due = body.next_due
         reminder.anchor_day = body.next_due.day
@@ -171,6 +178,7 @@ def done(reminder_id: str, body: DoneIn, user: CurrentUser, db: Db, background: 
         due_date=reminder.next_due,
         amount=body.amount if body.amount is not None else reminder.amount,
         note=(body.note or "").strip() or None,
+        odometer=body.odometer,
         done_by=user.id,
         done_by_name=user.name,
     )
