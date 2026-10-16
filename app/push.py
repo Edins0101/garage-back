@@ -150,6 +150,16 @@ def member_joined_push(actor: User, checklist: Checklist) -> Push:
     )
 
 
+def tracker_payment_push(actor: User, tracker, amount) -> Push:
+    verb = "registró un cobro" if tracker.direction == "earn" else "registró un pago"
+    return Push(
+        title=tracker.name,
+        body=f"{actor.name} {verb} de ${amount:,.2f}",
+        data={"type": "tracker_payment", "trackerId": tracker.id},
+        tag=f"tracker-{tracker.id}",
+    )
+
+
 def _space_title(reminder) -> str:
     from app.reminders import KIND_LABELS
 

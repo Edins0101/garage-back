@@ -130,7 +130,7 @@ def test_join_section_with_code(client):
     # El endpoint viejo de listas no acepta códigos de sección.
     assert client.post("/api/invites/join", json={"code": invite["code"]}, headers=beto).status_code == 404
     joined = client.post("/api/join", json={"code": invite["code"].lower()}, headers=beto).json()
-    assert joined == {"type": "space", "listId": None, "spaceId": space["id"], "kind": "payments"}
+    assert joined == {"type": "space", "listId": None, "spaceId": space["id"], "trackerId": None, "kind": "payments"}
     assert len(client.get("/api/reminders", params={"kind": "payments"}, headers=beto).json()) == 1
 
     # Y POST /join también sirve para listas.

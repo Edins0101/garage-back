@@ -60,6 +60,32 @@ class Tracker(Timestamps, Base):
     #: Último día ya rellenado automáticamente: los días que el usuario quite no vuelven a aparecer.
     auto_filled_until: Mapped[dt.date | None] = mapped_column(Date)
 
+    owner: Mapped[User] = relationship(lazy="selectin")
+    members: Mapped[list["TrackerMember"]] = relationship(
+        back_populates="tracker",
+        cascade="all, delete-orphan",
+        order_by="TrackerMember.invited_at",
+        lazy="selectin",
+    )
+
+
+class TrackerMember(Base):
+    """Persona con acceso a un contador (ej. la niñera ve sus días). Igual que ListMember."""
+
+    __tablename__ = "tracker_members"
+    __table_args__ = (UniqueConstraint("tracker_id", "email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tracker_id: Mapped[str] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # editor | viewer
+    status: Mapped[str] = mapped_column(String(16))  # pending | accepted
+    invited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    tracker: Mapped[Tracker] = relationship(back_populates="members")
+
 
 class GarageDay(Timestamps, Base):
     """Un día marcado en un contador (la tabla conserva el nombre de cuando solo existía el garaje)."""
@@ -213,13 +239,14 @@ class EmailCode(Base):
 
 
 class Invite(Base):
-    """Código para unirse a una lista o a una sección de recordatorios (uno de los dos)."""
+    """Código para unirse a una lista, a una sección de recordatorios o a un contador (uno de los tres)."""
 
     __tablename__ = "invites"
 
     code: Mapped[str] = mapped_column(String(12), primary_key=True)
     list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
     space_id: Mapped[str | None] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
+    tracker_id: Mapped[str | None] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

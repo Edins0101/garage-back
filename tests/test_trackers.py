@@ -77,3 +77,45 @@ def test_old_garage_routes_use_the_first_tracker(client, clock):
     assert len(client.get(f"/api/trackers/{garage}/days", headers=ana).json()) == 1
     payment = client.get(f"/api/trackers/{garage}/payments", headers=ana).json()[0]
     assert client.delete(f"/api/payments/{payment['id']}", headers=ana).status_code == 204
+
+
+def test_share_tracker_with_roles(client, clock):
+    from app.push import _console
+
+    _console.sent.clear()
+    ana = login(client, "ana@correo.com", "Ana")
+    pareja = login(client, "pareja@correo.com", "Pareja")
+    ninera = login(client, "ninera@correo.com", "Rosa")
+    client.post("/api/devices", json={"token": "token-ana-0000"}, headers=ana)
+    client.post("/api/devices", json={"token": "token-rosa-000"}, headers=ninera)
+    tracker = client.post("/api/trackers", json={"name": "Niñera", "icon": "child", "dailyRate": "25"}, headers=ana).json()
+    tid = tracker["id"]
+    assert tracker["role"] == "owner" and tracker["ownerName"] == "Ana"
+
+    # Pareja por correo con edición; la niñera con código (entra como "solo ver").
+    member = client.post(f"/api/trackers/{tid}/members", json={"email": "pareja@correo.com", "role": "editor"}, headers=ana)
+    assert member.json()["status"] == "accepted"
+    code = client.post(f"/api/trackers/{tid}/invites", headers=ana).json()
+    assert code["trackerId"] == tid
+    joined = client.post("/api/join", json={"code": code["code"]}, headers=ninera).json()
+    assert joined["type"] == "tracker" and joined["trackerId"] == tid
+
+    seen = client.get("/api/trackers", headers=ninera).json()
+    assert [(t["name"], t["role"], t["ownerName"]) for t in seen] == [("Niñera", "viewer", "Ana")]
+    assert {m["email"]: m["role"] for m in seen[0]["members"]} == {"pareja@correo.com": "editor", "ninera@correo.com": "viewer"}
+
+    # La pareja marca días y paga; la niñera solo ve.
+    assert client.put(f"/api/trackers/{tid}/days/2026-10-13", json={}, headers=pareja).status_code == 200
+    assert client.put(f"/api/trackers/{tid}/days/2026-10-14", json={}, headers=ninera).status_code == 403
+    assert client.get(f"/api/trackers/{tid}/days", headers=ninera).status_code == 200
+    client.post(f"/api/trackers/{tid}/payments", json={"date": "2026-10-14", "amount": "25"}, headers=pareja)
+    assert sorted(t for t, _ in _console.sent) == ["token-ana-0000", "token-rosa-000"]
+    assert _console.sent[0][1].body == "Pareja registró un pago de $25.00"
+
+    # Solo la dueña configura y comparte; un miembro puede salirse.
+    assert client.patch(f"/api/trackers/{tid}", json={"dailyRate": "30"}, headers=pareja).status_code == 403
+    assert client.post(f"/api/trackers/{tid}/invites", headers=pareja).status_code == 403
+    assert client.delete(f"/api/trackers/{tid}/members/ninera@correo.com", headers=ninera).status_code == 204
+    assert client.get("/api/trackers", headers=ninera).json() == []
+    # Las rutas viejas de la pareja no tocan el contador de Ana.
+    assert client.get("/api/garage-days", headers=pareja).json() == []

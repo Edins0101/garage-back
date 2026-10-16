@@ -8,12 +8,14 @@ funcionando sobre el primer contador del usuario (que se crea como "Mi garaje" s
 import datetime as dt
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import delete, select, update
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from sqlalchemy import delete, or_, select, update
 
 from app.auth import CurrentUser, Db
 from app.garage import backfill_auto_days, default_tracker, summary, today
-from app.models import GarageCharge, GarageDay, Payment, Tracker
+from app.models import GarageCharge, GarageDay, Payment, Tracker, TrackerMember, User
+from app.permissions import Access, access_level
+from app.push import device_tokens, recipients, send_push, tracker_payment_push
 from app.schemas import (
     ChargeIn,
     ChargeOut,
@@ -38,15 +40,35 @@ def _legacy_tracker(user: CurrentUser, db: Db) -> Tracker:
     return default_tracker(db, user)
 
 
-def _path_tracker(tracker_id: str, user: CurrentUser, db: Db) -> Tracker:
-    tracker = db.get(Tracker, tracker_id)
-    if tracker is None or tracker.owner_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "El contador no existe")
-    return tracker
+def _tracker_access(required: Access):
+    """Dependencia: el contador de la ruta, si el usuario tiene al menos ese permiso.
+
+    Sin acceso responde 404 (no revela que existe); con acceso insuficiente, 403.
+    """
+
+    def dependency(tracker_id: str, user: CurrentUser, db: Db) -> Tracker:
+        tracker = db.get(Tracker, tracker_id)
+        level = access_level(tracker, user) if tracker else Access.NONE
+        if level == Access.NONE:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "El contador no existe")
+        if level < required:
+            message = {
+                Access.EDITOR: "Solo puedes ver este contador, no editarlo",
+                Access.OWNER: "Solo el dueño del contador puede hacer esto",
+            }[required]
+            raise HTTPException(status.HTTP_403_FORBIDDEN, message)
+        return tracker
+
+    return dependency
 
 
 Legacy = Annotated[Tracker, Depends(_legacy_tracker)]
-ByPath = Annotated[Tracker, Depends(_path_tracker)]
+#: Ver (viewer), editar días/cargos/pagos (editor) y configurar o compartir (dueño).
+ByPath = Annotated[Tracker, Depends(_tracker_access(Access.VIEWER))]
+Editable = Annotated[Tracker, Depends(_tracker_access(Access.EDITOR))]
+Owned = Annotated[Tracker, Depends(_tracker_access(Access.OWNER))]
+
+_ROLES = {Access.OWNER: "owner", Access.EDITOR: "editor", Access.VIEWER: "viewer"}
 
 
 # ---------------------------------------------------------------- lógica común
@@ -56,11 +78,15 @@ def _settings_out(tracker: Tracker) -> GarageSettingsOut:
     return GarageSettingsOut(daily_rate=rate, auto_mark=tracker.auto_mark, today=today())
 
 
-def _tracker_out(db, tracker: Tracker) -> TrackerOut:
+def _tracker_out(db, tracker: Tracker, user: User) -> TrackerOut:
     backfill_auto_days(db, tracker)
     settings = _settings_out(tracker)
     return TrackerOut(
         id=tracker.id,
+        owner_id=tracker.owner_id,
+        owner_name=tracker.owner.name,
+        role=_ROLES[access_level(tracker, user)],
+        members=tracker.members,
         name=tracker.name,
         icon=tracker.icon,
         direction=tracker.direction,
@@ -193,9 +219,11 @@ def _my_tracker_ids(user):
 
 @router.get("/trackers", response_model=list[TrackerOut])
 def list_trackers(user: CurrentUser, db: Db):
-    """Mis contadores con la cuenta hasta hoy, en el orden en que se crearon."""
-    trackers = db.scalars(select(Tracker).where(Tracker.owner_id == user.id).order_by(Tracker.created_at)).all()
-    return [_tracker_out(db, t) for t in trackers]
+    """Mis contadores y los compartidos conmigo (después), con la cuenta hasta hoy."""
+    shared_ids = select(TrackerMember.tracker_id).where(TrackerMember.user_id == user.id)
+    query = select(Tracker).where(or_(Tracker.owner_id == user.id, Tracker.id.in_(shared_ids)))
+    trackers = sorted(db.scalars(query).all(), key=lambda t: (t.owner_id != user.id, t.created_at))
+    return [_tracker_out(db, t, user) for t in trackers]
 
 
 @router.post("/trackers", response_model=TrackerOut, status_code=status.HTTP_201_CREATED)
@@ -212,11 +240,11 @@ def create_tracker(body: TrackerIn, user: CurrentUser, db: Db):
     db.add(tracker)
     db.commit()
     db.refresh(tracker)
-    return _tracker_out(db, tracker)
+    return _tracker_out(db, tracker, user)
 
 
 @router.patch("/trackers/{tracker_id}", response_model=TrackerOut)
-def update_tracker(body: TrackerPatchIn, tracker: ByPath, db: Db):
+def update_tracker(body: TrackerPatchIn, tracker: Owned, user: CurrentUser, db: Db):
     if body.name:
         tracker.name = body.name.strip()
     if body.icon:
@@ -225,11 +253,11 @@ def update_tracker(body: TrackerPatchIn, tracker: ByPath, db: Db):
         tracker.direction = body.direction
     _apply_settings(db, tracker, body.model_fields_set, body.daily_rate, body.auto_mark, body.apply_to_days_without_rate)
     db.refresh(tracker)
-    return _tracker_out(db, tracker)
+    return _tracker_out(db, tracker, user)
 
 
 @router.delete("/trackers/{tracker_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_tracker(tracker: ByPath, db: Db):
+def delete_tracker(tracker: Owned, db: Db):
     db.delete(tracker)  # se van sus días, cargos y pagos
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -247,22 +275,22 @@ def tracker_days(tracker: ByPath, db: Db, from_: From = None, to: dt.date | None
 
 
 @router.put("/trackers/{tracker_id}/days/{day}", response_model=GarageDayOut)
-def tracker_set_day(day: dt.date, body: DayIn, tracker: ByPath, db: Db):
+def tracker_set_day(day: dt.date, body: DayIn, tracker: Editable, db: Db):
     return _set_day(db, tracker, day, body)
 
 
 @router.delete("/trackers/{tracker_id}/days/{day}", status_code=status.HTTP_204_NO_CONTENT)
-def tracker_remove_day(day: dt.date, tracker: ByPath, db: Db):
+def tracker_remove_day(day: dt.date, tracker: Editable, db: Db):
     return _remove_day(db, tracker, day)
 
 
 @router.post("/trackers/{tracker_id}/days/{day}/charges", response_model=ChargeOut, status_code=status.HTTP_201_CREATED)
-def tracker_add_charge(day: dt.date, body: ChargeIn, tracker: ByPath, db: Db):
+def tracker_add_charge(day: dt.date, body: ChargeIn, tracker: Editable, db: Db):
     return _add_charge(db, tracker, day, body)
 
 
 @router.delete("/trackers/{tracker_id}/charges/{charge_id}", status_code=status.HTTP_204_NO_CONTENT)
-def tracker_remove_charge(charge_id: str, tracker: ByPath, db: Db):
+def tracker_remove_charge(charge_id: str, tracker: Editable, db: Db):
     return _remove_charge(db, [tracker.id], charge_id)
 
 
@@ -272,12 +300,16 @@ def tracker_payments(tracker: ByPath, db: Db):
 
 
 @router.post("/trackers/{tracker_id}/payments", response_model=PaymentOut, status_code=status.HTTP_201_CREATED)
-def tracker_add_payment(body: PaymentIn, tracker: ByPath, db: Db):
-    return _add_payment(db, tracker, body)
+def tracker_add_payment(body: PaymentIn, tracker: Editable, user: CurrentUser, db: Db, background: BackgroundTasks):
+    payment = _add_payment(db, tracker, body)
+    # Avisa a los demás que ven el contador (ej. la niñera se entera del pago).
+    tokens = device_tokens(db, recipients(db, tracker, exclude_user_id=user.id))
+    background.add_task(send_push, tokens, tracker_payment_push(user, tracker, payment.amount))
+    return payment
 
 
 @router.delete("/trackers/{tracker_id}/payments/{payment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def tracker_remove_payment(payment_id: str, tracker: ByPath, db: Db):
+def tracker_remove_payment(payment_id: str, tracker: Editable, db: Db):
     return _remove_payment(db, [tracker.id], payment_id)
 
 

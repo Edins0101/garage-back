@@ -301,9 +301,10 @@ class InviteIn(ApiModel):
 class InviteOut(ApiModel):
     code: str
     url: str
-    #: Uno de los dos: la lista o la sección de recordatorios a la que invita.
+    #: Uno de los tres: la lista, la sección de recordatorios o el contador al que invita.
     list_id: str | None = None
     space_id: str | None = None
+    tracker_id: str | None = None
     expires_at: dt.datetime
 
 
@@ -314,9 +315,10 @@ class JoinIn(ApiModel):
 class JoinOut(ApiModel):
     """Resultado de POST /join: a qué se unió la persona con el código."""
 
-    type: Literal["list", "space"]
+    type: Literal["list", "space", "tracker"]
     list_id: str | None = None
     space_id: str | None = None
+    tracker_id: str | None = None
     kind: str | None = None
 
 
@@ -445,6 +447,11 @@ class TrackerOut(ApiModel):
     """Contador con su configuración y la cuenta hasta hoy (para listarlos sin otra consulta)."""
 
     id: str
+    owner_id: str
+    owner_name: str
+    #: Mi permiso sobre el contador.
+    role: Literal["owner", "editor", "viewer"]
+    members: list[MemberOut] = []
     name: str
     icon: TrackerIcon
     direction: Direction
