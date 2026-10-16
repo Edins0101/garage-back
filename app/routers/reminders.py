@@ -10,7 +10,8 @@ from app.auth import CurrentUser, Db
 from app.models import Reminder, ReminderLog, Space, SpaceMember, User
 from app.permissions import Access, access_level
 from app.push import device_tokens, recipients, reminder_added_push, reminder_done_push, send_push
-from app.reminders import get_reminder, get_space, mark_done, own_space
+from app.garage import today
+from app.reminders import DEFAULT_COUNT_FROM, get_reminder, get_space, mark_done, own_space
 from app.schemas import (
     DoneIn,
     InviteIn,
@@ -112,6 +113,7 @@ def create_reminder(body: NewReminderIn, user: CurrentUser, db: Db, background: 
         anchor_day=body.next_due.day,
         next_due=body.next_due,
         notify_days_before=body.notify_days_before,
+        count_from=body.count_from or DEFAULT_COUNT_FROM[body.kind],
         note=(body.note or "").strip() or None,
         created_by=user.id,
     )
@@ -140,6 +142,8 @@ def update_reminder(reminder_id: str, body: ReminderPatchIn, user: CurrentUser, 
         reminder.note = (body.note or "").strip() or None
     if "notify_days_before" in sent and body.notify_days_before is not None:
         reminder.notify_days_before = body.notify_days_before
+    if "count_from" in sent and body.count_from:
+        reminder.count_from = body.count_from
     if "next_due" in sent and body.next_due:
         reminder.next_due = body.next_due
         reminder.anchor_day = body.next_due.day
@@ -171,7 +175,7 @@ def done(reminder_id: str, body: DoneIn, user: CurrentUser, db: Db, background: 
         done_by_name=user.name,
     )
     reminder.logs.insert(0, log)
-    mark_done(reminder)
+    mark_done(reminder, today())
     db.commit()
     db.refresh(reminder)
     _notify(db, background, reminder.space, user, reminder_done_push(user, reminder))
@@ -186,6 +190,7 @@ def undo(reminder_id: str, user: CurrentUser, db: Db):
         raise HTTPException(status.HTTP_409_CONFLICT, "No hay nada que deshacer")
     last = reminder.logs[0]
     reminder.next_due = last.due_date
+    reminder.anchor_day = last.due_date.day if reminder.count_from == "done" else reminder.anchor_day
     reminder.finished = False
     reminder.logs.remove(last)
     db.commit()

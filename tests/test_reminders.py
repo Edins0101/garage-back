@@ -147,3 +147,25 @@ def test_pending_space_invite_is_linked_on_login(client):
     assert member.json()["status"] == "pending"
     nuevo = login(client, "nuevo@correo.com", "Nuevo")
     assert len(client.get("/api/reminders", params={"kind": "payments"}, headers=nuevo).json()) == 1
+
+
+def test_home_counts_from_the_day_it_was_done(client, monkeypatch):
+    """Limpiar el aire cada 3 meses: el siguiente se cuenta desde la limpieza, no desde la fecha que tocaba."""
+    import app.routers.reminders as routes
+
+    monkeypatch.setattr(routes, "today", lambda: dt.date(2026, 2, 20))
+    ana = login(client, "ana@correo.com", "Ana")
+    aire = _new(client, ana, kind="home", title="Limpiar el aire", amount=None, every=3, nextDue="2026-01-31")
+    assert aire["countFrom"] == "done" and aire["kind"] == "home"
+
+    done = client.post(f"/api/reminders/{aire['id']}/done", json={}, headers=ana).json()
+    assert done["nextDue"] == "2026-05-20" and done["lastDone"]["dueDate"] == "2026-01-31"
+    assert client.post(f"/api/reminders/{aire['id']}/undo", headers=ana).json()["nextDue"] == "2026-01-31"
+
+    # Los pagos siguen con fecha fija aunque se paguen tarde; y se puede cambiar.
+    luz = _new(client, ana)
+    assert luz["countFrom"] == "due"
+    assert client.post(f"/api/reminders/{luz['id']}/done", json={}, headers=ana).json()["nextDue"] == "2026-02-28"
+    patched = client.patch(f"/api/reminders/{luz['id']}", json={"countFrom": "done"}, headers=ana).json()
+    assert patched["countFrom"] == "done"
+    assert client.get("/api/reminders", params={"kind": "home"}, headers=ana).json()[0]["title"] == "Limpiar el aire"

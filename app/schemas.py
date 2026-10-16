@@ -300,6 +300,7 @@ class JoinOut(ApiModel):
 
 SpaceKind = Literal["payments", "home", "car"]
 Unit = Literal["day", "week", "month", "year"]
+CountFrom = Literal["due", "done"]
 
 
 class SpaceOut(ApiModel):
@@ -345,6 +346,7 @@ class ReminderOut(ApiModel):
     unit: Unit | None = None
     next_due: dt.date
     notify_days_before: int
+    count_from: CountFrom = "due"
     note: str | None = None
     finished: bool
     last_done: ReminderLogOut | None = None
@@ -359,7 +361,7 @@ class ReminderOut(ApiModel):
         if isinstance(data, Reminder):
             fields = {name: getattr(data, name) for name in (
                 "id", "space_id", "title", "amount", "every", "unit", "next_due", "notify_days_before",
-                "note", "finished", "created_at", "updated_at",
+                "count_from", "note", "finished", "created_at", "updated_at",
             )}
             return {**fields, "kind": data.space.kind, "last_done": data.logs[0] if data.logs else None}
         return data
@@ -380,6 +382,8 @@ class NewReminderIn(ApiModel):
     unit: Unit | None = None
     next_due: dt.date
     notify_days_before: int = Field(default=2, ge=0, le=60)
+    #: Si no se envía: "due" en pagos y "done" en Mi hogar / Mi carro.
+    count_from: CountFrom | None = None
     note: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -397,6 +401,7 @@ class ReminderPatchIn(ApiModel):
     unit: Unit | None = None
     next_due: dt.date | None = None
     notify_days_before: int | None = Field(default=None, ge=0, le=60)
+    count_from: CountFrom | None = None
     note: str | None = Field(default=None, max_length=500)
 
 

@@ -265,6 +265,9 @@ class Reminder(Timestamps, Base):
     anchor_day: Mapped[int | None] = mapped_column(Integer)
     next_due: Mapped[dt.date] = mapped_column(Date)
     notify_days_before: Mapped[int] = mapped_column(Integer, default=2)
+    #: Desde dónde se cuenta el siguiente: "due" (la fecha que vencía, ej. la luz) o
+    #: "done" (el día que se hizo, ej. limpiar el aire cada 3 meses desde la última limpieza).
+    count_from: Mapped[str] = mapped_column(String(8), default="due", server_default="due")
     note: Mapped[str | None] = mapped_column(Text)
     #: Recordatorio de una sola vez ya hecho.
     finished: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -35,12 +35,19 @@ def advance(due: dt.date, every: int, unit: str, anchor_day: int | None) -> dt.d
     raise ValueError(unit)
 
 
-def mark_done(reminder: Reminder) -> None:
+#: Por defecto: los pagos tienen fecha fija; los mantenimientos se cuentan desde que se hicieron.
+DEFAULT_COUNT_FROM = {"payments": "due", "home": "done", "car": "done"}
+
+
+def mark_done(reminder: Reminder, done_on: dt.date) -> None:
     """Pasa al siguiente vencimiento (o termina, si es de una sola vez)."""
-    if reminder.every and reminder.unit:
-        reminder.next_due = advance(reminder.next_due, reminder.every, reminder.unit, reminder.anchor_day)
-    else:
+    if not (reminder.every and reminder.unit):
         reminder.finished = True
+    elif reminder.count_from == "done":
+        reminder.next_due = advance(done_on, reminder.every, reminder.unit, done_on.day)
+        reminder.anchor_day = done_on.day
+    else:
+        reminder.next_due = advance(reminder.next_due, reminder.every, reminder.unit, reminder.anchor_day)
 
 
 def own_space(db: Session, user: User, kind: str) -> Space:
