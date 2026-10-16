@@ -1,8 +1,8 @@
 # Arianna API (backend)
 
 Backend de la app Android `D:\Projects\garaje-android`: **FastAPI + SQLAlchemy 2 + Alembic +
-PostgreSQL**. La app se llama **Arianna** (antes Garaje). Gestiona los días del carro en el garaje (por usuario) y las listas
-compartidas con permisos.
+PostgreSQL**. La app se llama **Arianna** (antes Garaje). Gestiona los días del carro en el garaje (por usuario), las listas
+compartidas con permisos y los recordatorios (Pagos; ver garaje-android/docs/PLAN-RECORDATORIOS.md).
 
 - Contrato de la API: `garaje-android/docs/API.md` (es la fuente de verdad que comparten la app y este backend)
 - Despliegue y operación: [docs/DEPLOY.md](docs/DEPLOY.md)
@@ -15,11 +15,13 @@ app/
 ├── main.py          # App, prefijo /api, errores {"message"}, /health
 ├── config.py        # Settings desde variables de entorno o .env; normaliza la URL de Postgres
 ├── db.py            # Engine, sesión y Base
-├── models.py        # Tablas: users, garage_days, checklists, checklist_items, list_members, invites
+├── models.py        # Tablas: users, garage_days, checklists, checklist_items, list_members, invites,
+│                    #   spaces, space_members, reminders, reminder_logs (recordatorios)
 ├── schemas.py       # JSON en camelCase (igual que los modelos Kotlin); fechas UTC con "Z"
 ├── auth.py          # JWT propio, login con Google, invitaciones pendientes al iniciar sesión
 ├── permissions.py   # Acceso a listas: OWNER > EDITOR > VIEWER > NONE (NONE responde 404)
-└── routers/         # auth, garage, lists, sharing
+├── reminders.py     # Repetición de fechas (meses con día original) y acceso a las secciones
+└── routers/         # auth, garage, lists, sharing, photos, devices, reminders
 alembic/             # Migraciones (la URL sale de DATABASE_URL)
 tests/               # pytest sobre SQLite en memoria (nunca tocan la base real)
 ```

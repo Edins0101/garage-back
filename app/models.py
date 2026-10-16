@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -198,9 +198,99 @@ class EmailCode(Base):
 
 
 class Invite(Base):
+    """Código para unirse a una lista o a una sección de recordatorios (uno de los dos)."""
+
     __tablename__ = "invites"
 
     code: Mapped[str] = mapped_column(String(12), primary_key=True)
-    list_id: Mapped[str] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
+    list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
+    space_id: Mapped[str | None] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+# ---------------------------------------------------------------- recordatorios (ver garaje-android/docs/PLAN-RECORDATORIOS.md)
+
+class Space(Timestamps, Base):
+    """Sección de recordatorios de un usuario (Pagos, Mi hogar, Mi carro). Se comparte completa."""
+
+    __tablename__ = "spaces"
+    __table_args__ = (UniqueConstraint("owner_id", "kind"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # payments | home | car
+
+    owner: Mapped[User] = relationship(lazy="selectin")
+    members: Mapped[list["SpaceMember"]] = relationship(
+        back_populates="space",
+        cascade="all, delete-orphan",
+        order_by="SpaceMember.invited_at",
+    )
+    reminders: Mapped[list["Reminder"]] = relationship(back_populates="space", cascade="all, delete-orphan")
+
+
+class SpaceMember(Base):
+    """Persona con acceso a una sección. Igual que ListMember: user_id se llena al aceptar."""
+
+    __tablename__ = "space_members"
+    __table_args__ = (UniqueConstraint("space_id", "email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    space_id: Mapped[str] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # editor | viewer
+    status: Mapped[str] = mapped_column(String(16))  # pending | accepted
+    invited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    space: Mapped[Space] = relationship(back_populates="members")
+
+
+class Reminder(Timestamps, Base):
+    """Algo que vence cada cierto tiempo (la luz cada mes) o una sola vez."""
+
+    __tablename__ = "reminders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    space_id: Mapped[str] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    #: Monto estimado (la luz cambia cada mes; el real se guarda al marcarlo).
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    #: Cada cuánto se repite: every=1, unit="month" → cada mes. Ambos vacíos = una sola vez.
+    every: Mapped[int | None] = mapped_column(Integer)
+    unit: Mapped[str | None] = mapped_column(String(8))  # day | week | month | year
+    #: Día del mes original: si vence el 31, en febrero vence el 28 y en marzo vuelve al 31.
+    anchor_day: Mapped[int | None] = mapped_column(Integer)
+    next_due: Mapped[dt.date] = mapped_column(Date)
+    notify_days_before: Mapped[int] = mapped_column(Integer, default=2)
+    note: Mapped[str | None] = mapped_column(Text)
+    #: Recordatorio de una sola vez ya hecho.
+    finished: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    space: Mapped[Space] = relationship(back_populates="reminders")
+    logs: Mapped[list["ReminderLog"]] = relationship(
+        back_populates="reminder",
+        cascade="all, delete-orphan",
+        order_by="desc(ReminderLog.created_at)",
+    )
+
+
+class ReminderLog(Base):
+    """Historial: cada vez que se marcó como pagado/hecho."""
+
+    __tablename__ = "reminder_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    reminder_id: Mapped[str] = mapped_column(ForeignKey("reminders.id", ondelete="CASCADE"), index=True)
+    #: Vencimiento que se cubrió (para deshacer: vuelve a ser el próximo).
+    due_date: Mapped[dt.date] = mapped_column(Date)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    note: Mapped[str | None] = mapped_column(String(200))
+    done_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    done_by_name: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    reminder: Mapped[Reminder] = relationship(back_populates="logs")

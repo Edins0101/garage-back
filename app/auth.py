@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import ListMember, User
+from app.models import ListMember, SpaceMember, User
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -42,7 +42,8 @@ def upsert_user(db: Session, email: str, name: str, google_sub: str | None = Non
 
     # Quien fue invitado por correo antes de registrarse obtiene acceso al iniciar sesión.
     pending = db.scalars(select(ListMember).where(ListMember.email == email, ListMember.user_id.is_(None)))
-    for member in pending:
+    pending_spaces = db.scalars(select(SpaceMember).where(SpaceMember.email == email, SpaceMember.user_id.is_(None)))
+    for member in [*pending, *pending_spaces]:
         member.user_id = user.id
         member.status = "accepted"
         member.name = member.name or user.name

@@ -6,10 +6,11 @@ from sqlalchemy import select
 
 from app.auth import CurrentUser, Db
 from app.config import get_settings
-from app.models import Checklist, Invite, ListMember, User, as_utc, utcnow
+from app.models import Checklist, Invite, ListMember, Space, SpaceMember, User, as_utc, utcnow
 from app.push import device_tokens, member_joined_push, recipients, send_push
 from app.permissions import Access, access_level, get_list
-from app.schemas import ChecklistOut, InviteIn, InviteOut, JoinIn, MemberOut
+from app.reminders import get_space
+from app.schemas import ChecklistOut, InviteIn, InviteOut, JoinIn, JoinOut, MemberOut
 
 router = APIRouter(tags=["compartir"])
 
@@ -22,8 +23,32 @@ def _invite_out(invite: Invite) -> InviteOut:
         code=invite.code,
         url=get_settings().invite_url_base + invite.code,
         list_id=invite.list_id,
+        space_id=invite.space_id,
         expires_at=invite.expires_at,
     )
+
+
+def _new_invite(db, user: User, *, list_id: str | None = None, space_id: str | None = None) -> InviteOut:
+    """Código de invitación; reutiliza uno vigente si existe."""
+    now = utcnow()
+    target = Invite.list_id == list_id if list_id else Invite.space_id == space_id
+    current = db.scalar(select(Invite).where(target, Invite.expires_at > now).order_by(Invite.expires_at.desc()))
+    if current:
+        return _invite_out(current)
+    while True:
+        code = "".join(secrets.choice(_ALPHABET) for _ in range(6))
+        if db.get(Invite, code) is None:
+            break
+    invite_row = Invite(
+        code=code,
+        list_id=list_id,
+        space_id=space_id,
+        created_by=user.id,
+        expires_at=now + timedelta(days=get_settings().invite_days),
+    )
+    db.add(invite_row)
+    db.commit()
+    return _invite_out(invite_row)
 
 
 @router.get("/lists/{list_id}/members", response_model=list[MemberOut])
@@ -74,34 +99,50 @@ def remove_member(list_id: str, email: str, user: CurrentUser, db: Db):
 def create_invite(list_id: str, user: CurrentUser, db: Db):
     """Código de invitación; reutiliza uno vigente si existe."""
     checklist = get_list(db, list_id, user, Access.OWNER)
-    now = utcnow()
-    current = db.scalar(
-        select(Invite).where(Invite.list_id == checklist.id, Invite.expires_at > now).order_by(Invite.expires_at.desc())
-    )
-    if current:
-        return _invite_out(current)
+    return _new_invite(db, user, list_id=checklist.id)
 
-    while True:
-        code = "".join(secrets.choice(_ALPHABET) for _ in range(6))
-        if db.get(Invite, code) is None:
-            break
-    invite_row = Invite(
-        code=code,
-        list_id=checklist.id,
-        created_by=user.id,
-        expires_at=now + timedelta(days=get_settings().invite_days),
-    )
-    db.add(invite_row)
-    db.commit()
-    return _invite_out(invite_row)
+
+@router.post("/spaces/{space_id}/invites", response_model=InviteOut)
+def create_space_invite(space_id: str, user: CurrentUser, db: Db):
+    """Código para unirse a toda una sección de recordatorios (ej. los Pagos de la casa)."""
+    space = get_space(db, space_id, user, Access.OWNER)
+    return _new_invite(db, user, space_id=space.id)
+
+
+def _valid_invite(db, code: str) -> Invite:
+    invite_row = db.get(Invite, code.strip().upper())
+    if invite_row is None or as_utc(invite_row.expires_at) <= utcnow():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Código inválido o vencido")
+    return invite_row
+
+
+@router.post("/join", response_model=JoinOut)
+def join_any(body: JoinIn, user: CurrentUser, db: Db, background: BackgroundTasks):
+    """Unirse con un código de lista o de sección. La app abre lo que corresponda."""
+    invite_row = _valid_invite(db, body.code)
+    if invite_row.list_id:
+        checklist = join(body, user, db, background)
+        return JoinOut(type="list", list_id=checklist.id)
+    space = db.get(Space, invite_row.space_id)
+    if space is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Código inválido o vencido")
+    if access_level(space, user) == Access.NONE:
+        member = next((m for m in space.members if m.email == user.email), None)
+        if member is None:
+            space.members.append(
+                SpaceMember(email=user.email, name=user.name, user_id=user.id, role="editor", status="accepted")
+            )
+        else:
+            member.user_id, member.status = user.id, "accepted"
+        db.commit()
+    return JoinOut(type="space", space_id=space.id, kind=space.kind)
 
 
 @router.post("/invites/join", response_model=ChecklistOut)
 def join(body: JoinIn, user: CurrentUser, db: Db, background: BackgroundTasks):
-    invite_row = db.get(Invite, body.code.strip().upper())
-    if invite_row is None or as_utc(invite_row.expires_at) <= utcnow():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Código inválido o vencido")
-    checklist = db.get(Checklist, invite_row.list_id)
+    """Solo listas (versiones anteriores de la app). Las nuevas usan POST /join."""
+    invite_row = _valid_invite(db, body.code)
+    checklist = db.get(Checklist, invite_row.list_id) if invite_row.list_id else None
     if checklist is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Código inválido o vencido")
 

@@ -277,9 +277,130 @@ class InviteIn(ApiModel):
 class InviteOut(ApiModel):
     code: str
     url: str
-    list_id: str
+    #: Uno de los dos: la lista o la sección de recordatorios a la que invita.
+    list_id: str | None = None
+    space_id: str | None = None
     expires_at: dt.datetime
 
 
 class JoinIn(ApiModel):
     code: str = Field(min_length=4, max_length=12)
+
+
+class JoinOut(ApiModel):
+    """Resultado de POST /join: a qué se unió la persona con el código."""
+
+    type: Literal["list", "space"]
+    list_id: str | None = None
+    space_id: str | None = None
+    kind: str | None = None
+
+
+# ---------------------------------------------------------------- recordatorios
+
+SpaceKind = Literal["payments", "home", "car"]
+Unit = Literal["day", "week", "month", "year"]
+
+
+class SpaceOut(ApiModel):
+    id: str
+    kind: SpaceKind
+    owner_id: str
+    owner_name: str
+    members: list[MemberOut]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _owner(cls, data):
+        from app.models import Space
+
+        if isinstance(data, Space):
+            return {
+                "id": data.id,
+                "kind": data.kind,
+                "owner_id": data.owner_id,
+                "owner_name": data.owner.name,
+                "members": data.members,
+            }
+        return data
+
+
+class ReminderLogOut(ApiModel):
+    id: str
+    due_date: dt.date
+    amount: float | None = None
+    note: str | None = None
+    done_by: str | None = None
+    done_by_name: str | None = None
+    created_at: dt.datetime
+
+
+class ReminderOut(ApiModel):
+    id: str
+    space_id: str
+    kind: SpaceKind
+    title: str
+    amount: float | None = None
+    every: int | None = None
+    unit: Unit | None = None
+    next_due: dt.date
+    notify_days_before: int
+    note: str | None = None
+    finished: bool
+    last_done: ReminderLogOut | None = None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten(cls, data):
+        from app.models import Reminder
+
+        if isinstance(data, Reminder):
+            fields = {name: getattr(data, name) for name in (
+                "id", "space_id", "title", "amount", "every", "unit", "next_due", "notify_days_before",
+                "note", "finished", "created_at", "updated_at",
+            )}
+            return {**fields, "kind": data.space.kind, "last_done": data.logs[0] if data.logs else None}
+        return data
+
+
+def _check_repeat(every: int | None, unit: str | None) -> None:
+    if (every is None) != (unit is None):
+        raise ValueError("Indica cada cuánto se repite (número y unidad) o ninguno de los dos")
+
+
+class NewReminderIn(ApiModel):
+    kind: SpaceKind
+    #: Sección donde se crea; por defecto la propia de ese tipo.
+    space_id: str | None = None
+    title: str = Field(min_length=1, max_length=120)
+    amount: Money | None = None
+    every: int | None = Field(default=None, ge=1, le=365)
+    unit: Unit | None = None
+    next_due: dt.date
+    notify_days_before: int = Field(default=2, ge=0, le=60)
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _repeat(self):
+        _check_repeat(self.every, self.unit)
+        return self
+
+
+class ReminderPatchIn(ApiModel):
+    """Solo cambian los campos enviados; amount, note y la repetición se borran enviando null."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    amount: Money | None = None
+    every: int | None = Field(default=None, ge=1, le=365)
+    unit: Unit | None = None
+    next_due: dt.date | None = None
+    notify_days_before: int | None = Field(default=None, ge=0, le=60)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class DoneIn(ApiModel):
+    #: Lo que realmente se pagó (por defecto, el monto estimado).
+    amount: Money | None = None
+    note: str | None = Field(default=None, max_length=200)

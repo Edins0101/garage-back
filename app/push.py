@@ -101,7 +101,7 @@ def get_push_sender():
 
 
 def recipients(db: Session, checklist: Checklist, exclude_user_id: str) -> list[str]:
-    """Usuarios que deben enterarse de un cambio en la lista: dueño y miembros aceptados, menos quien lo hizo."""
+    """Usuarios que deben enterarse de un cambio en la lista (o sección): dueño y miembros aceptados, menos quien lo hizo."""
     ids = {checklist.owner_id} | {m.user_id for m in checklist.members if m.user_id and m.status == "accepted"}
     ids.discard(exclude_user_id)
     return sorted(ids)
@@ -147,4 +147,29 @@ def member_joined_push(actor: User, checklist: Checklist) -> Push:
         body=f"{actor.name} se unió a la lista",
         data={"type": "member_joined", "listId": checklist.id},
         tag=f"list-{checklist.id}-members",
+    )
+
+
+def _space_title(reminder) -> str:
+    from app.reminders import KIND_LABELS
+
+    return KIND_LABELS.get(reminder.space.kind, "Recordatorios")
+
+
+def reminder_added_push(actor: User, reminder) -> Push:
+    return Push(
+        title=_space_title(reminder),
+        body=f"{actor.name} agregó «{reminder.title}»",
+        data={"type": "reminder_added", "kind": reminder.space.kind, "reminderId": reminder.id},
+        tag=f"reminder-{reminder.id}",
+    )
+
+
+def reminder_done_push(actor: User, reminder) -> Push:
+    verb = "como pagado" if reminder.space.kind == "payments" else "como hecho"
+    return Push(
+        title=_space_title(reminder),
+        body=f"{actor.name} marcó «{reminder.title}» {verb}",
+        data={"type": "reminder_done", "kind": reminder.space.kind, "reminderId": reminder.id},
+        tag=f"reminder-{reminder.id}",
     )
