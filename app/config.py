@@ -45,9 +45,9 @@ class Settings(BaseSettings):
     email_provider: str = "console"
     brevo_api_key: str = ""
     email_from: str = ""
-    email_from_name: str = "Garaje"
+    email_from_name: str = "Arianna"
     #: Base de los enlaces de invitación que se comparten.
-    invite_url_base: str = "garajeapp://join/"
+    invite_url_base: str = "arianna://join/"
 
     @property
     def sqlalchemy_url(self) -> str:

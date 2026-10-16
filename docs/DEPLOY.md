@@ -33,7 +33,7 @@
 - **Producción**: correo y contraseña (`/auth/register`, `/auth/login`). Debe estar `ALLOW_DEV_LOGIN=false`.
 - **Opcional, más adelante**: "Iniciar sesión con Google". La app obtiene un ID token y llama `POST /api/auth/google`.
   Requiere crear en Google Cloud un OAuth Client ID de tipo **Web** (su ID va en `GOOGLE_CLIENT_ID`)
-  y otro de tipo **Android** (paquete `com.garaje.app` + huella SHA-1 del keystore).
+  y otro de tipo **Android** (paquete `com.arianna.app` + huella SHA-1 del keystore).
 - **Desarrollo**: `POST /api/auth/dev {email, name}` solo funciona con `ALLOW_DEV_LOGIN=true`.
   **Nunca activarlo en producción.**
 
@@ -48,7 +48,7 @@ Render Free **bloquea SMTP** (puertos 25/465/587), así que los correos salen po
    - `EMAIL_PROVIDER` = `brevo`
    - `BREVO_API_KEY` = la clave del paso 3
    - `EMAIL_FROM` = el correo verificado en el paso 2
-   - `EMAIL_FROM_NAME` = `Garaje` (opcional)
+   - `EMAIL_FROM_NAME` = `Arianna` (opcional)
 
 Mientras no esté configurado (`EMAIL_PROVIDER=console`), **el código aparece en Render → Logs**
 como `CÓDIGO 123456 para correo@... (register)`. Sirve para probar.
@@ -57,7 +57,7 @@ Nota: si envías desde un Gmail, algunos correos pueden caer en spam. Con un dom
 
 ## Notificaciones push (Firebase Cloud Messaging)
 
-1. En console.firebase.google.com: crear proyecto → agregar app **Android** con paquete `com.garaje.app` →
+1. En console.firebase.google.com: crear proyecto → agregar app **Android** con paquete `com.arianna.app` →
    descargar `google-services.json` y ponerlo en `garaje-android/app/` (ya está en .gitignore).
 2. **Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada**: descarga un JSON.
 3. En Render (Environment):

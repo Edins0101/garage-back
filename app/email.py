@@ -71,15 +71,15 @@ def get_sender():
 
 def code_email(to: str, code: str, purpose: str, minutes: int) -> Email:
     action = "crear tu cuenta" if purpose == "register" else "cambiar tu contraseña"
-    subject = f"{code} es tu código de Garaje"
+    subject = f"{code} es tu código de Arianna"
     text = (
-        f"Tu código para {action} en Garaje es: {code}\n\n"
+        f"Tu código para {action} en Arianna es: {code}\n\n"
         f"Vence en {minutes} minutos. Si no lo pediste, ignora este correo."
     )
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;
                 background:#120A2B;color:#ffffff;border-radius:16px">
-      <p style="letter-spacing:4px;color:#C7BFF0;margin:0">GARAJE</p>
+      <p style="letter-spacing:4px;color:#C7BFF0;margin:0">ARIANNA</p>
       <h2 style="margin:8px 0 16px">Tu código para {action}</h2>
       <p style="font-size:36px;font-weight:800;letter-spacing:10px;background:#ffffff;color:#6A4BE0;
                 text-align:center;border-radius:12px;padding:16px;margin:0">{code}</p>

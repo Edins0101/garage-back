@@ -1,7 +1,7 @@
-# Garaje API (backend)
+# Arianna API (backend)
 
 Backend de la app Android `D:\Projects\garaje-android`: **FastAPI + SQLAlchemy 2 + Alembic +
-PostgreSQL**. Gestiona los días del carro en el garaje (por usuario) y las listas
+PostgreSQL**. La app se llama **Arianna** (antes Garaje). Gestiona los días del carro en el garaje (por usuario) y las listas
 compartidas con permisos.
 
 - Contrato de la API: `garaje-android/docs/API.md` (es la fuente de verdad que comparten la app y este backend)

@@ -8,9 +8,9 @@ from app.db import engine
 from app.routers import auth, devices, garage, lists, photos, sharing
 
 app = FastAPI(
-    title="Garaje API",
+    title="Arianna API",
     version="0.1.0",
-    description="Backend de la app Garaje: días del carro en el garaje y listas compartidas.",
+    description="Backend de la app Arianna: días del garaje, listas compartidas y pagos.",
 )
 
 # Todas las rutas de negocio viven bajo /api (la app usa API_URL=https://…/api).
