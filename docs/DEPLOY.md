@@ -55,6 +55,18 @@ como `CÓDIGO 123456 para correo@... (register)`. Sirve para probar.
 
 Nota: si envías desde un Gmail, algunos correos pueden caer en spam. Con un dominio propio verificado en Brevo mejora la entrega.
 
+## Notificaciones push (Firebase Cloud Messaging)
+
+1. En console.firebase.google.com: crear proyecto → agregar app **Android** con paquete `com.garaje.app` →
+   descargar `google-services.json` y ponerlo en `garaje-android/app/` (ya está en .gitignore).
+2. **Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada**: descarga un JSON.
+3. En Render (Environment):
+   - `PUSH_PROVIDER` = `fcm`
+   - `FIREBASE_SERVICE_ACCOUNT` = el contenido completo de ese JSON (pegarlo tal cual).
+
+Con `PUSH_PROVIDER=console` las notificaciones solo se escriben en Render → Logs (`PUSH (modo consola)…`).
+Se avisa cuando alguien agrega un elemento a una lista compartida o se une a ella; nunca a quien hizo el cambio.
+
 ## Seguridad y mantenimiento
 
 - **Rotar la contraseña de la base**: se compartió en un chat. En Render: base → Info → Credentials → nueva contraseña. Después actualizar `.env` y la variable `DATABASE_URL` del servicio.

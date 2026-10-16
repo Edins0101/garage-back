@@ -168,6 +168,19 @@ class ListMember(Base):
     checklist: Mapped[Checklist] = relationship(back_populates="members")
 
 
+class Device(Base):
+    """Teléfono de un usuario registrado para recibir notificaciones push (token de FCM)."""
+
+    __tablename__ = "devices"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+    platform: Mapped[str] = mapped_column(String(16), default="android")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class EmailCode(Base):
     """Código de un solo uso enviado por correo (verificar cuenta o recuperar contraseña)."""
 

@@ -1,12 +1,13 @@
 import secrets
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
 from sqlalchemy import select
 
 from app.auth import CurrentUser, Db
 from app.config import get_settings
 from app.models import Checklist, Invite, ListMember, User, as_utc, utcnow
+from app.push import device_tokens, member_joined_push, recipients, send_push
 from app.permissions import Access, access_level, get_list
 from app.schemas import ChecklistOut, InviteIn, InviteOut, JoinIn, MemberOut
 
@@ -96,7 +97,7 @@ def create_invite(list_id: str, user: CurrentUser, db: Db):
 
 
 @router.post("/invites/join", response_model=ChecklistOut)
-def join(body: JoinIn, user: CurrentUser, db: Db):
+def join(body: JoinIn, user: CurrentUser, db: Db, background: BackgroundTasks):
     invite_row = db.get(Invite, body.code.strip().upper())
     if invite_row is None or as_utc(invite_row.expires_at) <= utcnow():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Código inválido o vencido")
@@ -114,5 +115,7 @@ def join(body: JoinIn, user: CurrentUser, db: Db):
             member.user_id, member.status = user.id, "accepted"
         db.commit()
         db.refresh(checklist)
+        tokens = device_tokens(db, recipients(db, checklist, exclude_user_id=user.id))
+        background.add_task(send_push, tokens, member_joined_push(user, checklist))
     return checklist
 

@@ -222,6 +222,11 @@ class ImageIn(ApiModel):
     url: str | None = Field(default=None, max_length=2000, pattern=r"^https://")
 
 
+class DeviceIn(ApiModel):
+    token: str = Field(min_length=10, max_length=512)
+    platform: Literal["android"] = "android"
+
+
 class MemberOut(ApiModel):
     email: str
     name: str | None = None

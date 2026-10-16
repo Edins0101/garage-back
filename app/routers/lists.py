@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
 from sqlalchemy import or_, select
 
 from app.auth import CurrentUser, Db
 from app.catalog import delete_object, find_or_create_product
+from app.push import device_tokens, item_added_push, recipients, send_push
 from app.models import Checklist, ChecklistItem, ListMember, utcnow
 from app.permissions import Access, get_list
 from app.schemas import ChecklistOut, ItemOut, ItemPatchIn, NewItemIn, NewListIn, TitleIn
@@ -64,7 +65,7 @@ def delete_list(list_id: str, user: CurrentUser, db: Db):
 # ---------------------------------------------------------------- elementos
 
 @router.post("/{list_id}/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
-def add_item(list_id: str, body: NewItemIn, user: CurrentUser, db: Db):
+def add_item(list_id: str, body: NewItemIn, user: CurrentUser, db: Db, background: BackgroundTasks):
     checklist = get_list(db, list_id, user, Access.EDITOR)
     text = body.text.strip()
     if not text:
@@ -80,6 +81,9 @@ def add_item(list_id: str, body: NewItemIn, user: CurrentUser, db: Db):
     _touch(checklist)
     db.commit()
     db.refresh(item)
+    # Avisar a los demás miembros de la lista (no a quien agregó).
+    tokens = device_tokens(db, recipients(db, checklist, exclude_user_id=user.id))
+    background.add_task(send_push, tokens, item_added_push(user, checklist, item.text))
     return item
 
 

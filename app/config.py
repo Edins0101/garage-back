@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     max_storage_bytes_per_owner: int = 200 * 1024 * 1024
     signed_url_seconds: int = 3600
 
+    # Notificaciones push: "console" (se escriben en los logs) o "fcm" (Firebase Cloud Messaging).
+    push_provider: str = "console"
+    #: Contenido JSON de la cuenta de servicio de Firebase (Configuración del proyecto → Cuentas de servicio).
+    firebase_service_account: str = ""
+
     # Envío de correos: "console" (el código sale en los logs) o "brevo" (API HTTP).
     # Render Free bloquea SMTP, por eso se usa una API HTTP.
     email_provider: str = "console"
