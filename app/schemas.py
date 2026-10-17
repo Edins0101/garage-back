@@ -203,6 +203,7 @@ class ItemOut(ApiModel):
     id: str
     text: str
     quantity: str | None = None
+    section: str | None = None
     done: bool
     done_by: str | None = None
     product_id: str | None = None
@@ -299,11 +300,15 @@ class TitleIn(ApiModel):
 class NewItemIn(ApiModel):
     text: str = Field(min_length=1, max_length=200)
     quantity: str | None = Field(default=None, max_length=60)
+    #: Sección dentro de la lista (Baño, Patio…).
+    section: str | None = Field(default=None, max_length=60)
 
 
 class ItemPatchIn(ApiModel):
     text: str | None = Field(default=None, min_length=1, max_length=200)
     quantity: str | None = Field(default=None, max_length=60)
+    #: null o vacío la quita de su sección.
+    section: str | None = Field(default=None, max_length=60)
     done: bool | None = None
 
 

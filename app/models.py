@@ -187,6 +187,8 @@ class ChecklistItem(Timestamps, Base):
     list_id: Mapped[str] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
     text: Mapped[str] = mapped_column(String(200))
     quantity: Mapped[str | None] = mapped_column(String(60))
+    #: Sección dentro de la lista (Baño, Patio, Perros…). Vacía = sin sección.
+    section: Mapped[str | None] = mapped_column(String(60))
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     done_by: Mapped[str | None] = mapped_column(String(36))
     #: Producto del catálogo (del dueño de la lista) al que corresponde el elemento.

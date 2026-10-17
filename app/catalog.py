@@ -72,6 +72,7 @@ def item_payload(item: ChecklistItem) -> dict:
         "id": item.id,
         "text": item.text,
         "quantity": item.quantity,
+        "section": item.section,
         "done": item.done,
         "done_by": item.done_by,
         "product_id": item.product_id,

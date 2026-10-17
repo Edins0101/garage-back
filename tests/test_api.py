@@ -230,3 +230,17 @@ def test_password_reset(client):
     assert client.post("/api/auth/login", json={"email": "ana@correo.com", "password": "vieja12345"}).status_code == 401
     assert client.post("/api/auth/login", json={"email": "ana@correo.com", "password": "nueva12345"}).status_code == 200
 
+
+
+def test_items_with_sections(client):
+    h = login(client, "ana@correo.com")
+    lst = client.post("/api/lists", json={"title": "Casa", "kind": "shopping"}, headers=h).json()
+    soap = client.post(f"/api/lists/{lst['id']}/items", json={"text": "Jabón", "section": " Baño "}, headers=h).json()
+    bread = client.post(f"/api/lists/{lst['id']}/items", json={"text": "Pan"}, headers=h).json()
+    assert soap["section"] == "Baño" and bread["section"] is None
+    moved = client.patch(f"/api/lists/{lst['id']}/items/{bread['id']}", json={"section": "Cocina"}, headers=h).json()
+    assert moved["section"] == "Cocina"
+    # Cambiar otra cosa no la saca de su sección; null sí.
+    assert client.patch(f"/api/lists/{lst['id']}/items/{bread['id']}", json={"done": True}, headers=h).json()["section"] == "Cocina"
+    cleared = client.patch(f"/api/lists/{lst['id']}/items/{bread['id']}", json={"section": None}, headers=h).json()
+    assert cleared["section"] is None

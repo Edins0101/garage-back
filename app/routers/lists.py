@@ -79,6 +79,7 @@ def add_item(list_id: str, body: NewItemIn, user: CurrentUser, db: Db, backgroun
         list_id=checklist.id,
         text=text,
         quantity=(body.quantity or "").strip() or None,
+        section=(body.section or "").strip() or None,
         product_id=product.id,
     )
     db.add(item)
@@ -108,6 +109,8 @@ def update_item(list_id: str, item_id: str, body: ItemPatchIn, user: CurrentUser
         item.product_id = find_or_create_product(db, checklist.owner_id, item.text).id
     if body.quantity is not None:
         item.quantity = body.quantity.strip() or None
+    if "section" in body.model_fields_set:
+        item.section = (body.section or "").strip() or None
     if body.done is not None:
         item.done = body.done
         item.done_by = user.id if body.done else None
