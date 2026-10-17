@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import select
 
 from app.auth import CurrentUser, Db
-from app.models import Checklist, Group, GroupMember, GroupShare, Space, Tracker, User
+from app.models import Appliance, Checklist, Group, GroupMember, GroupShare, Space, Tracker, User
 from app.permissions import Access, access_level, my_group_ids
 from app.reminders import KIND_LABELS
 from app.schemas import GroupIn, GroupItemOut, GroupMemberIn, GroupMemberOut, GroupOut, GroupShareIn, InviteOut, JoinOut
@@ -30,6 +30,9 @@ def _item_out(share: GroupShare) -> GroupItemOut:
     elif share.space is not None:
         item, kind, title = share.space, share.space.kind, KIND_LABELS[share.space.kind]
         type_ = "space"
+    elif share.appliance is not None:
+        item, kind, title = share.appliance, share.appliance.icon, share.appliance.name
+        type_ = "appliance"
     else:
         item, kind, title = share.tracker, share.tracker.icon, share.tracker.name
         type_ = "tracker"
@@ -46,7 +49,8 @@ def _group_out(group: Group, user: User) -> GroupOut:
         owner_name=group.owner.name,
         role="owner" if group.owner_id == user.id else "member",
         members=group.members,
-        shared=[_item_out(s) for s in group.shares],
+        shared=[_item_out(s) for s in group.shares if s.appliance_id is None],
+        shared_appliances=[_item_out(s) for s in group.shares if s.appliance_id is not None],
         created_at=group.created_at,
     )
 
@@ -162,6 +166,7 @@ _TARGETS = {
     "lists": (Checklist, "list_id", "La lista no existe"),
     "spaces": (Space, "space_id", "La sección no existe"),
     "trackers": (Tracker, "tracker_id", "El calendario no existe"),
+    "appliances": (Appliance, "appliance_id", "El equipo no existe"),
 }
 
 

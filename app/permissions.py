@@ -46,7 +46,7 @@ def my_group_ids(user: User):
 
 
 def shared_by_groups(column, user: User):
-    """Ids compartidos con mis grupos; column es GroupShare.list_id, .space_id o .tracker_id."""
+    """Ids compartidos con mis grupos; column es GroupShare.list_id, .space_id, .tracker_id o .appliance_id."""
     return select(column).where(GroupShare.group_id.in_(my_group_ids(user)), column.is_not(None))
 
 

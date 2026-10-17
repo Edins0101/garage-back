@@ -443,13 +443,14 @@ class GroupMember(Base):
 
 
 class GroupShare(Base):
-    """Algo compartido con un grupo (una lista, una sección o un contador; uno solo) y con qué permiso."""
+    """Algo compartido con un grupo (una lista, una sección, un contador o un equipo; uno solo) y con qué permiso."""
 
     __tablename__ = "group_shares"
     __table_args__ = (
         UniqueConstraint("group_id", "list_id"),
         UniqueConstraint("group_id", "space_id"),
         UniqueConstraint("group_id", "tracker_id"),
+        UniqueConstraint("group_id", "appliance_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -457,6 +458,7 @@ class GroupShare(Base):
     list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
     space_id: Mapped[str | None] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
     tracker_id: Mapped[str | None] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
+    appliance_id: Mapped[str | None] = mapped_column(ForeignKey("appliances.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(16))  # editor | viewer
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -464,7 +466,82 @@ class GroupShare(Base):
     checklist: Mapped[Checklist | None] = relationship(back_populates="group_shares")
     space: Mapped[Space | None] = relationship(back_populates="group_shares")
     tracker: Mapped[Tracker | None] = relationship(back_populates="group_shares")
+    appliance: Mapped["Appliance | None"] = relationship(back_populates="group_shares")
 
     @property
     def group_name(self) -> str:
         return self.group.name
+
+
+class Appliance(Timestamps, Base):
+    """Equipo compartido de la casa ("¿Está libre?"): la lavadora, la secadora, el baño, el carro…
+
+    Se ve si está libre u ocupado y por quién. Se comparte con grupos: "editor" puede ocuparlo y
+    liberarlo, "viewer" solo ve. Si nadie lo libera, se libera solo (ver app/appliances.py).
+    """
+
+    __tablename__ = "appliances"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    icon: Mapped[str] = mapped_column(String(16), default="washer")
+    #: Cuánto dura un uso normal (ej. un ciclo de lavado). Se propone al ocuparlo.
+    default_minutes: Mapped[int | None] = mapped_column(Integer)
+    busy_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    busy_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Hora estimada en que termina (si se dijo cuánto dura).
+    expected_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    owner: Mapped[User] = relationship(foreign_keys=[owner_id], lazy="selectin")
+    busy_by: Mapped[User | None] = relationship(foreign_keys=[busy_by_id], lazy="selectin")
+    group_shares: Mapped[list["GroupShare"]] = relationship(
+        back_populates="appliance",
+        cascade="all, delete-orphan",
+        order_by="GroupShare.created_at",
+        lazy="selectin",
+    )
+    uses: Mapped[list["ApplianceUse"]] = relationship(
+        back_populates="appliance",
+        cascade="all, delete-orphan",
+        order_by="ApplianceUse.started_at.desc()",
+    )
+    #: Los equipos solo se comparten con grupos (access_level espera esta lista).
+    members: list = []
+
+    my_access = None
+
+    @property
+    def my_role(self) -> str:
+        return {3: "owner", 2: "editor", 1: "viewer"}.get(int(self.my_access or 0), "viewer")
+
+
+class ApplianceUse(Base):
+    """Historial: quién usó el equipo y cuándo."""
+
+    __tablename__ = "appliance_uses"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    appliance_id: Mapped[str] = mapped_column(ForeignKey("appliances.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    #: Copia del nombre (sigue viéndose si la persona borra su cuenta).
+    user_name: Mapped[str] = mapped_column(String(120))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_by_name: Mapped[str | None] = mapped_column(String(120))
+    #: Se liberó solo porque nadie lo hizo.
+    auto: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    appliance: Mapped[Appliance] = relationship(back_populates="uses")
+
+
+class ApplianceNotify(Base):
+    """Qué avisos quiere cada persona de un equipo: all (por defecto), free (solo al liberarse) o none."""
+
+    __tablename__ = "appliance_notify"
+    __table_args__ = (UniqueConstraint("appliance_id", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    appliance_id: Mapped[str] = mapped_column(ForeignKey("appliances.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    mode: Mapped[str] = mapped_column(String(8))

@@ -553,7 +553,7 @@ class GroupMemberOut(ApiModel):
 class GroupItemOut(ApiModel):
     """Algo compartido con el grupo, para mostrarlo en la pantalla del grupo."""
 
-    type: Literal["list", "space", "tracker"]
+    type: Literal["list", "space", "tracker", "appliance"]
     id: str
     title: str
     #: shopping/todo (lista), payments/home/car/other (sección) o el ícono del contador.
@@ -572,8 +572,67 @@ class GroupOut(ApiModel):
     role: Literal["owner", "member"]
     members: list[GroupMemberOut]
     shared: list[GroupItemOut]
+    #: Equipos de "¿Está libre?" compartidos con el grupo (aparte: la app v0.8 no conoce ese tipo).
+    shared_appliances: list[GroupItemOut] = []
     created_at: dt.datetime
 
 
 class GroupShareIn(ApiModel):
     role: Role = "editor"
+
+
+# ---------------------------------------------------------------- ¿Está libre? (equipos compartidos)
+
+ApplianceIcon = Literal["washer", "dryer", "bath", "car", "kitchen", "tv", "computer", "other"]
+UseMinutes = Annotated[int, Field(ge=1, le=1440)]
+NotifyMode = Literal["all", "free", "none"]
+
+
+class ApplianceIn(ApiModel):
+    name: str = Field(min_length=1, max_length=60)
+    icon: ApplianceIcon = "washer"
+    default_minutes: UseMinutes | None = None
+
+
+class AppliancePatchIn(ApiModel):
+    """Campos opcionales: los que no se envían no cambian; default_minutes null lo quita."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    icon: ApplianceIcon | None = None
+    default_minutes: UseMinutes | None = None
+
+
+class ApplianceStartIn(ApiModel):
+    #: Cuánto va a durar (ej. 45 min de lavado). Sin esto no hay hora estimada.
+    minutes: UseMinutes | None = None
+
+
+class ApplianceNotifyIn(ApiModel):
+    mode: NotifyMode
+
+
+class ApplianceOut(ApiModel):
+    id: str
+    name: str
+    icon: str
+    default_minutes: int | None = None
+    owner_id: str
+    owner_name: str
+    role: Literal["owner", "editor", "viewer"]
+    busy: bool
+    busy_by_id: str | None = None
+    busy_by_name: str | None = None
+    busy_since: dt.datetime | None = None
+    expected_end: dt.datetime | None = None
+    #: Mis avisos de este equipo.
+    notify: NotifyMode = "all"
+    groups: list[GroupShareOut] = []
+
+
+class ApplianceUseOut(ApiModel):
+    id: str
+    user_name: str
+    started_at: dt.datetime
+    ended_at: dt.datetime | None = None
+    ended_by_name: str | None = None
+    auto: bool = False
