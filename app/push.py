@@ -103,6 +103,8 @@ def get_push_sender():
 def recipients(db: Session, checklist: Checklist, exclude_user_id: str) -> list[str]:
     """Usuarios que deben enterarse de un cambio en la lista (o sección): dueño y miembros aceptados, menos quien lo hizo."""
     ids = {checklist.owner_id} | {m.user_id for m in checklist.members if m.user_id and m.status == "accepted"}
+    for share in getattr(checklist, "group_shares", []):
+        ids |= share.group.user_ids
     ids.discard(exclude_user_id)
     return sorted(ids)
 

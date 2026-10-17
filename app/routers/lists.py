@@ -4,8 +4,8 @@ from sqlalchemy import or_, select
 from app.auth import CurrentUser, Db
 from app.catalog import delete_object, find_or_create_product
 from app.push import device_tokens, item_added_push, recipients, send_push
-from app.models import Checklist, ChecklistItem, ListMember, utcnow
-from app.permissions import Access, get_list
+from app.models import Checklist, ChecklistItem, GroupShare, ListMember, utcnow
+from app.permissions import Access, access_level, get_list, shared_by_groups
 from app.schemas import ChecklistOut, ItemOut, ItemPatchIn, NewItemIn, NewListIn, TitleIn
 
 router = APIRouter(prefix="/lists", tags=["listas"])
@@ -20,12 +20,16 @@ def _touch(checklist: Checklist) -> None:
 def all_lists(user: CurrentUser, db: Db):
     """Listas propias y compartidas conmigo, las más recientes primero."""
     shared_ids = select(ListMember.list_id).where(ListMember.user_id == user.id)
+    group_ids = shared_by_groups(GroupShare.list_id, user)
     query = (
         select(Checklist)
-        .where(or_(Checklist.owner_id == user.id, Checklist.id.in_(shared_ids)))
+        .where(or_(Checklist.owner_id == user.id, Checklist.id.in_(shared_ids), Checklist.id.in_(group_ids)))
         .order_by(Checklist.updated_at.desc())
     )
-    return db.scalars(query).all()
+    found = db.scalars(query).all()
+    for checklist in found:
+        checklist.my_access = access_level(checklist, user)
+    return found
 
 
 @router.post("", response_model=ChecklistOut, status_code=status.HTTP_201_CREATED)

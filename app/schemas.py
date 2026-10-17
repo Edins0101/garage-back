@@ -156,6 +156,7 @@ class TrackerIn(ApiModel):
     direction: Direction = "pay"
     daily_rate: Money | None = None
     auto_mark: bool = False
+    list_id: str | None = None
 
 
 class TrackerPatchIn(ApiModel):
@@ -166,6 +167,8 @@ class TrackerPatchIn(ApiModel):
     direction: Direction | None = None
     daily_rate: Money | None = None
     auto_mark: bool | None = None
+    #: Lista adjunta; null la quita.
+    list_id: str | None = None
     #: Al cambiar la tarifa, aplicarla también a los días ya marcados que no tienen tarifa.
     apply_to_days_without_rate: bool = True
 
@@ -260,6 +263,14 @@ class MemberOut(ApiModel):
     invited_at: dt.datetime
 
 
+class GroupShareOut(ApiModel):
+    """Con qué grupo se compartió algo y con qué permiso."""
+
+    group_id: str
+    group_name: str
+    role: Role
+
+
 class ChecklistOut(ApiModel):
     id: str
     title: str
@@ -267,6 +278,9 @@ class ChecklistOut(ApiModel):
     owner_id: str
     items: list[ItemOut]
     shared_with: list[MemberOut] = Field(validation_alias="members")
+    groups: list[GroupShareOut] = Field(default=[], validation_alias="group_shares")
+    #: Mi permiso sobre la lista (directo o por un grupo).
+    role: Literal["owner", "editor", "viewer"] = Field(default="owner", validation_alias="my_role")
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -305,6 +319,7 @@ class InviteOut(ApiModel):
     list_id: str | None = None
     space_id: str | None = None
     tracker_id: str | None = None
+    group_id: str | None = None
     expires_at: dt.datetime
 
 
@@ -315,10 +330,11 @@ class JoinIn(ApiModel):
 class JoinOut(ApiModel):
     """Resultado de POST /join: a qué se unió la persona con el código."""
 
-    type: Literal["list", "space", "tracker"]
+    type: Literal["list", "space", "tracker", "group"]
     list_id: str | None = None
     space_id: str | None = None
     tracker_id: str | None = None
+    group_id: str | None = None
     kind: str | None = None
 
 
@@ -327,6 +343,8 @@ class JoinOut(ApiModel):
 SpaceKind = Literal["payments", "home", "car", "other"]
 Unit = Literal["day", "week", "month", "year"]
 CountFrom = Literal["due", "done"]
+#: Anticipación del aviso con hora: hasta una semana antes.
+AlertMinutes = Annotated[int, Field(ge=0, le=10_080)]
 
 
 class SpaceOut(ApiModel):
@@ -335,6 +353,9 @@ class SpaceOut(ApiModel):
     owner_id: str
     owner_name: str
     members: list[MemberOut]
+    groups: list[GroupShareOut] = []
+    #: Mi permiso sobre la sección (directo o por un grupo).
+    role: Literal["owner", "editor", "viewer"] = "owner"
 
     @model_validator(mode="before")
     @classmethod
@@ -348,6 +369,8 @@ class SpaceOut(ApiModel):
                 "owner_id": data.owner_id,
                 "owner_name": data.owner.name,
                 "members": data.members,
+                "groups": data.group_shares,
+                "role": data.my_role,
             }
         return data
 
@@ -375,6 +398,9 @@ class ReminderOut(ApiModel):
     notify_days_before: int
     count_from: CountFrom = "due"
     every_km: int | None = None
+    due_time: dt.time | None = None
+    alert_minutes: int | None = None
+    list_id: str | None = None
     note: str | None = None
     finished: bool
     last_done: ReminderLogOut | None = None
@@ -389,7 +415,8 @@ class ReminderOut(ApiModel):
         if isinstance(data, Reminder):
             fields = {name: getattr(data, name) for name in (
                 "id", "space_id", "title", "amount", "every", "unit", "next_due", "notify_days_before",
-                "count_from", "every_km", "note", "finished", "created_at", "updated_at",
+                "count_from", "every_km", "due_time", "alert_minutes", "list_id", "note", "finished",
+                "created_at", "updated_at",
             )}
             return {**fields, "kind": data.space.kind, "last_done": data.logs[0] if data.logs else None}
         return data
@@ -413,6 +440,9 @@ class NewReminderIn(ApiModel):
     #: Si no se envía: "due" en pagos y "done" en Mi hogar / Mi carro.
     count_from: CountFrom | None = None
     every_km: int | None = Field(default=None, ge=100, le=200_000)
+    due_time: dt.time | None = None
+    alert_minutes: AlertMinutes | None = None
+    list_id: str | None = None
     note: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -432,6 +462,9 @@ class ReminderPatchIn(ApiModel):
     notify_days_before: int | None = Field(default=None, ge=0, le=60)
     count_from: CountFrom | None = None
     every_km: int | None = Field(default=None, ge=100, le=200_000)
+    due_time: dt.time | None = None
+    alert_minutes: AlertMinutes | None = None
+    list_id: str | None = None
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -452,11 +485,60 @@ class TrackerOut(ApiModel):
     #: Mi permiso sobre el contador.
     role: Literal["owner", "editor", "viewer"]
     members: list[MemberOut] = []
+    groups: list[GroupShareOut] = []
     name: str
     icon: TrackerIcon
     direction: Direction
     daily_rate: float | None = None
     auto_mark: bool = False
+    list_id: str | None = None
     today: dt.date
     summary: GarageSummaryOut
     created_at: dt.datetime
+
+
+# ---------------------------------------------------------------- grupos
+
+class GroupIn(ApiModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class GroupMemberIn(ApiModel):
+    email: EmailStr
+
+
+class GroupMemberOut(ApiModel):
+    email: str
+    name: str | None = None
+    user_id: str | None = None
+    status: Status
+    invited_at: dt.datetime
+
+
+class GroupItemOut(ApiModel):
+    """Algo compartido con el grupo, para mostrarlo en la pantalla del grupo."""
+
+    type: Literal["list", "space", "tracker"]
+    id: str
+    title: str
+    #: shopping/todo (lista), payments/home/car/other (sección) o el ícono del contador.
+    kind: str
+    owner_id: str
+    owner_name: str
+    role: Role
+
+
+class GroupOut(ApiModel):
+    id: str
+    name: str
+    owner_id: str
+    owner_name: str
+    #: Mi lugar en el grupo.
+    role: Literal["owner", "member"]
+    members: list[GroupMemberOut]
+    shared: list[GroupItemOut]
+    created_at: dt.datetime
+
+
+class GroupShareIn(ApiModel):
+    role: Role = "editor"

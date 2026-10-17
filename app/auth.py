@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import ListMember, SpaceMember, TrackerMember, User
+from app.models import GroupMember, ListMember, SpaceMember, TrackerMember, User
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -46,7 +46,8 @@ def upsert_user(db: Session, email: str, name: str, google_sub: str | None = Non
     pending_trackers = db.scalars(
         select(TrackerMember).where(TrackerMember.email == email, TrackerMember.user_id.is_(None))
     )
-    for member in [*pending, *pending_spaces, *pending_trackers]:
+    pending_groups = db.scalars(select(GroupMember).where(GroupMember.email == email, GroupMember.user_id.is_(None)))
+    for member in [*pending, *pending_spaces, *pending_trackers, *pending_groups]:
         member.user_id = user.id
         member.status = "accepted"
         member.name = member.name or user.name

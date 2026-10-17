@@ -25,12 +25,19 @@ def _invite_out(invite: Invite) -> InviteOut:
         list_id=invite.list_id,
         space_id=invite.space_id,
         tracker_id=invite.tracker_id,
+        group_id=invite.group_id,
         expires_at=invite.expires_at,
     )
 
 
 def _new_invite(
-    db, user: User, *, list_id: str | None = None, space_id: str | None = None, tracker_id: str | None = None
+    db,
+    user: User,
+    *,
+    list_id: str | None = None,
+    space_id: str | None = None,
+    tracker_id: str | None = None,
+    group_id: str | None = None,
 ) -> InviteOut:
     """Código de invitación; reutiliza uno vigente si existe."""
     now = utcnow()
@@ -38,8 +45,10 @@ def _new_invite(
         target = Invite.list_id == list_id
     elif space_id:
         target = Invite.space_id == space_id
-    else:
+    elif tracker_id:
         target = Invite.tracker_id == tracker_id
+    else:
+        target = Invite.group_id == group_id
     current = db.scalar(select(Invite).where(target, Invite.expires_at > now).order_by(Invite.expires_at.desc()))
     if current:
         return _invite_out(current)
@@ -52,6 +61,7 @@ def _new_invite(
         list_id=list_id,
         space_id=space_id,
         tracker_id=tracker_id,
+        group_id=group_id,
         created_by=user.id,
         expires_at=now + timedelta(days=get_settings().invite_days),
     )
@@ -134,6 +144,10 @@ def join_any(body: JoinIn, user: CurrentUser, db: Db, background: BackgroundTask
         return JoinOut(type="list", list_id=checklist.id)
     if invite_row.tracker_id:
         return _join_tracker(db, user, invite_row.tracker_id)
+    if invite_row.group_id:
+        from app.routers.groups import join_group
+
+        return join_group(db, user, invite_row.group_id)
     space = db.get(Space, invite_row.space_id)
     if space is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Código inválido o vencido")

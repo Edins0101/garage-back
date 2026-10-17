@@ -13,8 +13,8 @@ from sqlalchemy import delete, or_, select, update
 
 from app.auth import CurrentUser, Db
 from app.garage import backfill_auto_days, default_tracker, summary, today
-from app.models import GarageCharge, GarageDay, Payment, Tracker, TrackerMember, User
-from app.permissions import Access, access_level
+from app.models import GarageCharge, GarageDay, GroupShare, Payment, Tracker, TrackerMember, User
+from app.permissions import Access, access_level, get_list, shared_by_groups
 from app.push import device_tokens, recipients, send_push, tracker_payment_push
 from app.schemas import (
     ChargeIn,
@@ -87,11 +87,13 @@ def _tracker_out(db, tracker: Tracker, user: User) -> TrackerOut:
         owner_name=tracker.owner.name,
         role=_ROLES[access_level(tracker, user)],
         members=tracker.members,
+        groups=tracker.group_shares,
         name=tracker.name,
         icon=tracker.icon,
         direction=tracker.direction,
         daily_rate=settings.daily_rate,
         auto_mark=tracker.auto_mark,
+        list_id=tracker.list_id,
         today=settings.today,
         summary=GarageSummaryOut(**summary(db, tracker, today())),
         created_at=tracker.created_at,
@@ -221,7 +223,10 @@ def _my_tracker_ids(user):
 def list_trackers(user: CurrentUser, db: Db):
     """Mis contadores y los compartidos conmigo (después), con la cuenta hasta hoy."""
     shared_ids = select(TrackerMember.tracker_id).where(TrackerMember.user_id == user.id)
-    query = select(Tracker).where(or_(Tracker.owner_id == user.id, Tracker.id.in_(shared_ids)))
+    group_ids = shared_by_groups(GroupShare.tracker_id, user)
+    query = select(Tracker).where(
+        or_(Tracker.owner_id == user.id, Tracker.id.in_(shared_ids), Tracker.id.in_(group_ids))
+    )
     trackers = sorted(db.scalars(query).all(), key=lambda t: (t.owner_id != user.id, t.created_at))
     return [_tracker_out(db, t, user) for t in trackers]
 
@@ -236,6 +241,7 @@ def create_tracker(body: TrackerIn, user: CurrentUser, db: Db):
         daily_rate=body.daily_rate,
         auto_mark=body.auto_mark,
         auto_filled_until=today() - dt.timedelta(days=1) if body.auto_mark else None,
+        list_id=get_list(db, body.list_id, user).id if body.list_id else None,
     )
     db.add(tracker)
     db.commit()
@@ -251,7 +257,10 @@ def update_tracker(body: TrackerPatchIn, tracker: Owned, user: CurrentUser, db: 
         tracker.icon = body.icon
     if body.direction:
         tracker.direction = body.direction
+    if "list_id" in body.model_fields_set:
+        tracker.list_id = get_list(db, body.list_id, user).id if body.list_id else None
     _apply_settings(db, tracker, body.model_fields_set, body.daily_rate, body.auto_mark, body.apply_to_days_without_rate)
+    db.commit()
     db.refresh(tracker)
     return _tracker_out(db, tracker, user)
 

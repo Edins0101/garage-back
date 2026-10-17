@@ -65,6 +65,8 @@ def get_space(db: Session, space_id: str, user: User, required: Access = Access.
     """Igual que get_list: 404 si no tiene acceso, 403 si no le alcanza el permiso."""
     space = db.get(Space, space_id)
     level = access_level(space, user) if space else Access.NONE
+    if space is not None:
+        space.my_access = level
     if level == Access.NONE:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La sección no existe")
     if level < required:

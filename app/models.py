@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -59,12 +59,21 @@ class Tracker(Timestamps, Base):
     auto_mark: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     #: Último día ya rellenado automáticamente: los días que el usuario quite no vuelven a aparecer.
     auto_filled_until: Mapped[dt.date | None] = mapped_column(Date)
+    #: Lista adjunta (ej. las tareas de la niñera). Si se borra la lista, el contador queda sin lista.
+    list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="SET NULL"), index=True)
 
     owner: Mapped[User] = relationship(lazy="selectin")
     members: Mapped[list["TrackerMember"]] = relationship(
         back_populates="tracker",
         cascade="all, delete-orphan",
         order_by="TrackerMember.invited_at",
+        lazy="selectin",
+    )
+    #: Grupos con los que se compartió (todos sus integrantes tienen acceso, ver app/permissions.py).
+    group_shares: Mapped[list["GroupShare"]] = relationship(
+        back_populates="tracker",
+        cascade="all, delete-orphan",
+        order_by="GroupShare.created_at",
         lazy="selectin",
     )
 
@@ -140,6 +149,13 @@ class Payment(Base):
 class Checklist(Timestamps, Base):
     __tablename__ = "checklists"
 
+    #: Permiso del usuario que pidió la lista (no se guarda): lo llena get_list para la respuesta.
+    my_access = None
+
+    @property
+    def my_role(self) -> str:
+        return {3: "owner", 2: "editor", 1: "viewer"}.get(self.my_access, "owner")
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     title: Mapped[str] = mapped_column(String(120))
     kind: Mapped[str] = mapped_column(String(16))  # shopping | todo
@@ -154,6 +170,13 @@ class Checklist(Timestamps, Base):
         back_populates="checklist",
         cascade="all, delete-orphan",
         order_by="ListMember.invited_at",
+    )
+    #: Grupos con los que se compartió (todos sus integrantes tienen acceso, ver app/permissions.py).
+    group_shares: Mapped[list["GroupShare"]] = relationship(
+        back_populates="checklist",
+        cascade="all, delete-orphan",
+        order_by="GroupShare.created_at",
+        lazy="selectin",
     )
 
 
@@ -239,7 +262,7 @@ class EmailCode(Base):
 
 
 class Invite(Base):
-    """Código para unirse a una lista, a una sección de recordatorios o a un contador (uno de los tres)."""
+    """Código para unirse a una lista, a una sección de recordatorios, a un contador o a un grupo (uno solo)."""
 
     __tablename__ = "invites"
 
@@ -247,6 +270,7 @@ class Invite(Base):
     list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
     space_id: Mapped[str | None] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
     tracker_id: Mapped[str | None] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -259,6 +283,13 @@ class Space(Timestamps, Base):
     __tablename__ = "spaces"
     __table_args__ = (UniqueConstraint("owner_id", "kind"),)
 
+    #: Permiso del usuario que pidió la sección (no se guarda): lo llena get_space para la respuesta.
+    my_access = None
+
+    @property
+    def my_role(self) -> str:
+        return {3: "owner", 2: "editor", 1: "viewer"}.get(self.my_access, "owner")
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(16))  # payments | home | car | other
@@ -270,6 +301,13 @@ class Space(Timestamps, Base):
         order_by="SpaceMember.invited_at",
     )
     reminders: Mapped[list["Reminder"]] = relationship(back_populates="space", cascade="all, delete-orphan")
+    #: Grupos con los que se compartió (todos sus integrantes tienen acceso, ver app/permissions.py).
+    group_shares: Mapped[list["GroupShare"]] = relationship(
+        back_populates="space",
+        cascade="all, delete-orphan",
+        order_by="GroupShare.created_at",
+        lazy="selectin",
+    )
 
 
 class SpaceMember(Base):
@@ -313,6 +351,12 @@ class Reminder(Timestamps, Base):
     #: Mi carro: también cada tantos km (ej. aceite cada 3 meses o 5.000 km). Solo informativo:
     #: los avisos son por fecha; la app muestra a qué kilometraje toca según el último registrado.
     every_km: Mapped[int | None] = mapped_column(Integer)
+    #: Hora (local del teléfono) a la que vence, ej. la pastilla a las 20:00. Sin hora: aviso de la mañana.
+    due_time: Mapped[dt.time | None] = mapped_column(Time)
+    #: Con hora: cuántos minutos antes avisar (0 = a la hora, 60 = una hora antes, 1440 = el día anterior).
+    alert_minutes: Mapped[int | None] = mapped_column(Integer)
+    #: Lista adjunta (ej. "Compras del mes" con la lista del súper).
+    list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="SET NULL"), index=True)
     note: Mapped[str | None] = mapped_column(Text)
     #: Recordatorio de una sola vez ya hecho.
     finished: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -344,3 +388,77 @@ class ReminderLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     reminder: Mapped[Reminder] = relationship(back_populates="logs")
+
+
+class Group(Timestamps, Base):
+    """Grupo de personas (Familia, Roomies…). Lo que se comparte con el grupo lo ven todos sus integrantes,
+    también quienes entren después."""
+
+    __tablename__ = "groups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+
+    owner: Mapped[User] = relationship(lazy="selectin")
+    members: Mapped[list["GroupMember"]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="GroupMember.invited_at",
+        lazy="selectin",
+    )
+    shares: Mapped[list["GroupShare"]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="GroupShare.created_at",
+    )
+
+    @property
+    def user_ids(self) -> set[str]:
+        """Quienes están en el grupo: el dueño y los integrantes que ya aceptaron."""
+        return {self.owner_id} | {m.user_id for m in self.members if m.user_id and m.status == "accepted"}
+
+
+class GroupMember(Base):
+    """Integrante de un grupo. Igual que ListMember: user_id se llena al aceptar (o al registrarse)."""
+
+    __tablename__ = "group_members"
+    __table_args__ = (UniqueConstraint("group_id", "email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    name: Mapped[str | None] = mapped_column(String(120))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    status: Mapped[str] = mapped_column(String(16))  # pending | accepted
+    invited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    group: Mapped[Group] = relationship(back_populates="members")
+
+
+class GroupShare(Base):
+    """Algo compartido con un grupo (una lista, una sección o un contador; uno solo) y con qué permiso."""
+
+    __tablename__ = "group_shares"
+    __table_args__ = (
+        UniqueConstraint("group_id", "list_id"),
+        UniqueConstraint("group_id", "space_id"),
+        UniqueConstraint("group_id", "tracker_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True)
+    list_id: Mapped[str | None] = mapped_column(ForeignKey("checklists.id", ondelete="CASCADE"), index=True)
+    space_id: Mapped[str | None] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
+    tracker_id: Mapped[str | None] = mapped_column(ForeignKey("trackers.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # editor | viewer
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    group: Mapped[Group] = relationship(back_populates="shares", lazy="selectin")
+    checklist: Mapped[Checklist | None] = relationship(back_populates="group_shares")
+    space: Mapped[Space | None] = relationship(back_populates="group_shares")
+    tracker: Mapped[Tracker | None] = relationship(back_populates="group_shares")
+
+    @property
+    def group_name(self) -> str:
+        return self.group.name

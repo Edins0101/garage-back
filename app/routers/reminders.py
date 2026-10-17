@@ -7,8 +7,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, 
 from sqlalchemy import or_, select
 
 from app.auth import CurrentUser, Db
-from app.models import Reminder, ReminderLog, Space, SpaceMember, User
-from app.permissions import Access, access_level
+from app.models import GroupShare, Reminder, ReminderLog, Space, SpaceMember, User
+from app.permissions import Access, access_level, get_list, shared_by_groups
 from app.push import device_tokens, recipients, reminder_added_push, reminder_done_push, send_push
 from app.garage import today
 from app.reminders import DEFAULT_COUNT_FROM, KINDS, get_reminder, get_space, mark_done, own_space
@@ -33,11 +33,14 @@ def _accessible_spaces(db: Db, user: User, kind: str | None) -> list[Space]:
     own_ids = [own_space(db, user, k).id for k in kinds]
     db.commit()
     shared_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user.id)
-    query = select(Space).where(Space.kind.in_(kinds), or_(Space.id.in_(own_ids), Space.id.in_(shared_ids)))
-    return sorted(
-        db.scalars(query).all(),
-        key=lambda s: (s.owner_id != user.id, s.owner.name.lower(), KINDS.index(s.kind)),
+    group_ids = shared_by_groups(GroupShare.space_id, user)
+    query = select(Space).where(
+        Space.kind.in_(kinds), or_(Space.id.in_(own_ids), Space.id.in_(shared_ids), Space.id.in_(group_ids))
     )
+    found = db.scalars(query).all()
+    for space in found:
+        space.my_access = access_level(space, user)
+    return sorted(found, key=lambda s: (s.owner_id != user.id, s.owner.name.lower(), KINDS.index(s.kind)))
 
 
 def _notify(db: Db, background: BackgroundTasks, space: Space, actor: User, push) -> None:
@@ -119,6 +122,10 @@ def create_reminder(body: NewReminderIn, user: CurrentUser, db: Db, background: 
         notify_days_before=body.notify_days_before,
         count_from=body.count_from or DEFAULT_COUNT_FROM[body.kind],
         every_km=body.every_km,
+        due_time=body.due_time,
+        alert_minutes=body.alert_minutes if body.due_time else None,
+        # Solo se adjunta una lista que yo puedo ver.
+        list_id=get_list(db, body.list_id, user).id if body.list_id else None,
         note=(body.note or "").strip() or None,
         created_by=user.id,
     )
@@ -151,6 +158,14 @@ def update_reminder(reminder_id: str, body: ReminderPatchIn, user: CurrentUser, 
         reminder.count_from = body.count_from
     if "every_km" in sent:
         reminder.every_km = body.every_km
+    if "due_time" in sent:
+        reminder.due_time = body.due_time
+    if "alert_minutes" in sent:
+        reminder.alert_minutes = body.alert_minutes
+    if reminder.due_time is None:
+        reminder.alert_minutes = None
+    if "list_id" in sent:
+        reminder.list_id = get_list(db, body.list_id, user).id if body.list_id else None
     if "next_due" in sent and body.next_due:
         reminder.next_due = body.next_due
         reminder.anchor_day = body.next_due.day
