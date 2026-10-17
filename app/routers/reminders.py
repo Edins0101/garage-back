@@ -122,6 +122,7 @@ def create_reminder(body: NewReminderIn, user: CurrentUser, db: Db, background: 
         notify_days_before=body.notify_days_before,
         count_from=body.count_from or DEFAULT_COUNT_FROM[body.kind],
         every_km=body.every_km,
+        ends_on=body.ends_on if body.every else None,
         due_time=body.due_time,
         alert_minutes=body.alert_minutes if body.due_time else None,
         # Solo se adjunta una lista que yo puedo ver.
@@ -158,6 +159,8 @@ def update_reminder(reminder_id: str, body: ReminderPatchIn, user: CurrentUser, 
         reminder.count_from = body.count_from
     if "every_km" in sent:
         reminder.every_km = body.every_km
+    if "ends_on" in sent:
+        reminder.ends_on = body.ends_on
     if "due_time" in sent:
         reminder.due_time = body.due_time
     if "alert_minutes" in sent:
@@ -170,6 +173,10 @@ def update_reminder(reminder_id: str, body: ReminderPatchIn, user: CurrentUser, 
         reminder.next_due = body.next_due
         reminder.anchor_day = body.next_due.day
         reminder.finished = False
+    if reminder.every is None:
+        reminder.ends_on = None
+    if reminder.ends_on is not None and reminder.ends_on < reminder.next_due:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "La fecha final debe ser igual o posterior a la inicial")
     db.commit()
     db.refresh(reminder)
     return reminder

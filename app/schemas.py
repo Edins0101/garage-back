@@ -400,6 +400,7 @@ class ReminderOut(ApiModel):
     notify_days_before: int
     count_from: CountFrom = "due"
     every_km: int | None = None
+    ends_on: dt.date | None = None
     due_time: dt.time | None = None
     alert_minutes: int | None = None
     list_id: str | None = None
@@ -417,7 +418,7 @@ class ReminderOut(ApiModel):
         if isinstance(data, Reminder):
             fields = {name: getattr(data, name) for name in (
                 "id", "space_id", "title", "amount", "every", "unit", "next_due", "notify_days_before",
-                "count_from", "every_km", "due_time", "alert_minutes", "list_id", "note", "finished",
+                "count_from", "every_km", "ends_on", "due_time", "alert_minutes", "list_id", "note", "finished",
                 "created_at", "updated_at",
             )}
             return {**fields, "kind": data.space.kind, "last_done": data.logs[0] if data.logs else None}
@@ -442,6 +443,8 @@ class NewReminderIn(ApiModel):
     #: Si no se envía: "due" en pagos y "done" en Mi hogar / Mi carro.
     count_from: CountFrom | None = None
     every_km: int | None = Field(default=None, ge=100, le=200_000)
+    #: Rango de fechas: se repite hasta este día (incluido).
+    ends_on: dt.date | None = None
     due_time: dt.time | None = None
     alert_minutes: AlertMinutes | None = None
     list_id: str | None = None
@@ -450,6 +453,8 @@ class NewReminderIn(ApiModel):
     @model_validator(mode="after")
     def _repeat(self):
         _check_repeat(self.every, self.unit)
+        if self.ends_on is not None and self.ends_on < self.next_due:
+            raise ValueError("La fecha final debe ser igual o posterior a la inicial")
         return self
 
 
@@ -464,6 +469,8 @@ class ReminderPatchIn(ApiModel):
     notify_days_before: int | None = Field(default=None, ge=0, le=60)
     count_from: CountFrom | None = None
     every_km: int | None = Field(default=None, ge=100, le=200_000)
+    #: Rango de fechas: se repite hasta este día (incluido).
+    ends_on: dt.date | None = None
     due_time: dt.time | None = None
     alert_minutes: AlertMinutes | None = None
     list_id: str | None = None

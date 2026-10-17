@@ -351,6 +351,8 @@ class Reminder(Timestamps, Base):
     #: Mi carro: también cada tantos km (ej. aceite cada 3 meses o 5.000 km). Solo informativo:
     #: los avisos son por fecha; la app muestra a qué kilometraje toca según el último registrado.
     every_km: Mapped[int | None] = mapped_column(Integer)
+    #: Rango: se repite hasta esta fecha (incluida) y luego termina. Vacío = sin fin.
+    ends_on: Mapped[dt.date | None] = mapped_column(Date)
     #: Hora (local del teléfono) a la que vence, ej. la pastilla a las 20:00. Sin hora: aviso de la mañana.
     due_time: Mapped[dt.time | None] = mapped_column(Time)
     #: Con hora: cuántos minutos antes avisar (0 = a la hora, 60 = una hora antes, 1440 = el día anterior).

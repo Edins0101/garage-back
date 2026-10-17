@@ -189,3 +189,32 @@ def test_all_sections_at_once_and_car_kilometers(client):
     done = client.post(f"/api/reminders/{aceite['id']}/done", json={"odometer": 45300}, headers=ana).json()
     assert done["lastDone"]["odometer"] == 45300
     assert client.patch(f"/api/reminders/{aceite['id']}", json={"everyKm": None}, headers=ana).json()["everyKm"] is None
+
+
+def test_daily_reminder_within_a_date_range(client, monkeypatch):
+    monkeypatch.setattr("app.routers.reminders.today", lambda: __import__("datetime").date(2026, 10, 18))
+    ana = login(client, "ana@correo.com", "Ana")
+    pill = client.post("/api/reminders", json={
+        "kind": "other", "title": "Pastilla", "nextDue": "2026-10-18", "endsOn": "2026-10-20",
+        "every": 1, "unit": "day", "countFrom": "due", "dueTime": "20:00",
+    }, headers=ana).json()
+    assert pill["endsOn"] == "2026-10-20" and pill["unit"] == "day"
+
+    rid = pill["id"]
+    assert client.post(f"/api/reminders/{rid}/done", json={}, headers=ana).json()["nextDue"] == "2026-10-19"
+    assert client.post(f"/api/reminders/{rid}/done", json={}, headers=ana).json()["nextDue"] == "2026-10-20"
+    last = client.post(f"/api/reminders/{rid}/done", json={}, headers=ana).json()
+    assert last["finished"] is True and last["nextDue"] == "2026-10-20"
+    # Deshacer la última vuelve a abrirlo.
+    assert client.post(f"/api/reminders/{rid}/undo", json={}, headers=ana).json()["finished"] is False
+
+    # La fecha final no puede ser anterior a la inicial; sin repetición no hay rango.
+    bad = client.post("/api/reminders", json={
+        "kind": "other", "title": "X", "nextDue": "2026-10-18", "endsOn": "2026-10-10", "every": 1, "unit": "day",
+    }, headers=ana)
+    assert bad.status_code == 422
+    once = client.post("/api/reminders", json={
+        "kind": "other", "title": "Y", "nextDue": "2026-10-18", "endsOn": "2026-10-20",
+    }, headers=ana).json()
+    assert once["endsOn"] is None
+    assert client.patch(f"/api/reminders/{rid}", json={"endsOn": "2026-10-01"}, headers=ana).status_code == 422

@@ -41,14 +41,21 @@ DEFAULT_COUNT_FROM = {"payments": "due", "home": "done", "car": "done", "other":
 
 
 def mark_done(reminder: Reminder, done_on: dt.date) -> None:
-    """Pasa al siguiente vencimiento (o termina, si es de una sola vez)."""
+    """Pasa al siguiente vencimiento. Termina si es de una sola vez o si el siguiente cae después de `ends_on`."""
     if not (reminder.every and reminder.unit):
         reminder.finished = True
-    elif reminder.count_from == "done":
-        reminder.next_due = advance(done_on, reminder.every, reminder.unit, done_on.day)
-        reminder.anchor_day = done_on.day
+        return
+    if reminder.count_from == "done":
+        following = advance(done_on, reminder.every, reminder.unit, done_on.day)
     else:
-        reminder.next_due = advance(reminder.next_due, reminder.every, reminder.unit, reminder.anchor_day)
+        following = advance(reminder.next_due, reminder.every, reminder.unit, reminder.anchor_day)
+    if reminder.ends_on is not None and following > reminder.ends_on:
+        # Era el último del rango (ej. la pastilla del 18 al 25): queda hecho en su última fecha.
+        reminder.finished = True
+        return
+    if reminder.count_from == "done":
+        reminder.anchor_day = done_on.day
+    reminder.next_due = following
 
 
 def own_space(db: Session, user: User, kind: str) -> Space:
