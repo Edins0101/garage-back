@@ -5,7 +5,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import engine
-from app.routers import auth, devices, garage, groups, lists, photos, reminders, sharing
+from app.routers import auth, devices, garage, groups, lists, photos, reminders, sharing, web
 
 app = FastAPI(
     title="Arianna API",
@@ -18,6 +18,8 @@ api = APIRouter(prefix="/api")
 for module in (auth, garage, lists, sharing, photos, devices, reminders, groups):
     api.include_router(module.router)
 app.include_router(api)
+# Páginas públicas fuera de /api: enlaces de invitación y App Links.
+app.include_router(web.router)
 
 
 # La app espera los errores como {"message": "..."} (ver docs/API.md).

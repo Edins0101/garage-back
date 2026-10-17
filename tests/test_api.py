@@ -244,3 +244,14 @@ def test_items_with_sections(client):
     assert client.patch(f"/api/lists/{lst['id']}/items/{bread['id']}", json={"done": True}, headers=h).json()["section"] == "Cocina"
     cleared = client.patch(f"/api/lists/{lst['id']}/items/{bread['id']}", json={"section": None}, headers=h).json()
     assert cleared["section"] is None
+
+
+def test_join_page_and_assetlinks(client):
+    page = client.get("/join/ab12cd")
+    assert page.status_code == 200
+    assert "AB12CD" in page.text and "intent://join/AB12CD" in page.text
+    assert client.get("/join/<script>").status_code == 404
+
+    links = client.get("/.well-known/assetlinks.json").json()
+    assert links[0]["target"]["package_name"] == "com.arianna.app"
+    assert len(links[0]["target"]["sha256_cert_fingerprints"][0]) == 95
