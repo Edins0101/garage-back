@@ -5,7 +5,8 @@
 | Pieza | Dónde | Notas |
 |---|---|---|
 | PostgreSQL 18 | Render: base `garaje_app`, región Oregon | **Si es el plan Free, vence 30 días después de crearse** y luego Render la borra. Migrar antes a Neon o pasar a un plan pago. |
-| API | Render Web Service (Docker, plan Free) | Se duerme tras unos 15 minutos sin uso; la primera petición después tarda cerca de 1 minuto. |
+| API | Render Web Service `arianna-back` (Docker, plan Free): **https://arianna-back.onrender.com** (`/health`, `/docs`) | Se duerme tras unos 15 minutos sin uso; la primera petición después tarda cerca de 1 minuto. El servicio anterior `garage-back-me4r` se borró el 2026-10-17: las versiones de la app anteriores a la v0.8.1 ya no se conectan. |
+| Enlaces de invitación | El mismo servicio: `/join/CODIGO` (página) y `/.well-known/assetlinks.json` (App Links) | Si cambia la dirección del servidor hay que actualizar `API_URL`, el intent-filter https del manifest y el deep link de `JoinRoute` en la app, y `INVITE_URL_BASE`. Si cambia la llave de firma, `ANDROID_CERT_SHA256`. |
 | Código | GitHub: [Edins0101/garage-back](https://github.com/Edins0101/garage-back) (app: [Edins0101/garage-app](https://github.com/Edins0101/garage-app)) | Render despliega solo en cada push a `main`. |
 
 ## Primer despliegue en Render
@@ -27,6 +28,16 @@
 - **Totalmente offline**: `docker compose up --build` (API + Postgres 18 en Docker, con ALLOW_DEV_LOGIN activo).
   Requiere Docker Desktop abierto.
 - Desde el emulador Android, la PC es `http://10.0.2.2:8000/api`. Para HTTP sin TLS, la app necesita permitir cleartext solo en debug.
+
+## Variables de entorno en Render
+
+Todas están en [.env.example](../.env.example), con su explicación. En producción revisar siempre:
+
+- `ALLOW_DEV_LOGIN=false` (con `true` cualquiera entra a cualquier cuenta sin contraseña).
+- `INVITE_URL_BASE=https://arianna-back.onrender.com/join/`, o borrarla para usar la del código.
+- `EMAIL_PROVIDER=brevo` + `BREVO_API_KEY` + `EMAIL_FROM`, y `PUSH_PROVIDER=fcm` + `FIREBASE_SERVICE_ACCOUNT`.
+
+Al crear un servicio nuevo, comprobar desde fuera que `POST /api/auth/dev` responda 404.
 
 ## Login
 
