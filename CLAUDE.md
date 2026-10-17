@@ -22,7 +22,7 @@ app/
 ├── permissions.py   # Acceso a listas: OWNER > EDITOR > VIEWER > NONE (NONE responde 404)
 ├── reminders.py     # Repetición de fechas (meses con día original) y acceso a las secciones
 ├── garage.py        # Contadores por día: marcado automático y cuenta (el garaje es un contador más)
-└── routers/         # auth, garage, lists, sharing, photos, devices, reminders
+└── routers/         # auth, garage, lists, sharing, photos, devices, reminders, groups, appliances (¿Está libre?), web
 alembic/             # Migraciones (la URL sale de DATABASE_URL)
 tests/               # pytest sobre SQLite en memoria (nunca tocan la base real)
 ```
