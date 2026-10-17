@@ -39,6 +39,8 @@ class User(Base):
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
     #: Hash scrypt de la contraseña (ver app/passwords.py). Vacío si entra solo con Google.
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    #: Preferencias de la app en JSON (inicio y color), para tenerlas en cualquier teléfono.
+    preferences: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

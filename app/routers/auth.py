@@ -12,6 +12,8 @@ from app.schemas import (
     GoogleLoginIn,
     LoginIn,
     MessageOut,
+    PreferencesIn,
+    PreferencesOut,
     RegisterIn,
     ResetPasswordIn,
     TokenOut,
@@ -109,3 +111,30 @@ def login_dev(body: DevLoginIn, db: Db):
 @router.get("/me", response_model=UserOut)
 def me(user: CurrentUser):
     return user
+
+
+def _preferences(user: User) -> PreferencesOut:
+    if not user.preferences:
+        return PreferencesOut()
+    try:
+        return PreferencesOut.model_validate_json(user.preferences)
+    except ValueError:
+        return PreferencesOut()
+
+
+@router.get("/me/preferences", response_model=PreferencesOut)
+def get_preferences(user: CurrentUser):
+    """Inicio y color guardados en la cuenta (vacío si nunca se guardaron)."""
+    return _preferences(user)
+
+
+@router.put("/me/preferences", response_model=PreferencesOut)
+def save_preferences(body: PreferencesIn, user: CurrentUser, db: Db):
+    current = _preferences(user)
+    merged = PreferencesOut(
+        home=body.home if body.home is not None else current.home,
+        accent=body.accent if body.accent is not None else current.accent,
+    )
+    user.preferences = merged.model_dump_json(by_alias=True)
+    db.commit()
+    return merged

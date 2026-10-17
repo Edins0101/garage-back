@@ -255,3 +255,17 @@ def test_join_page_and_assetlinks(client):
     links = client.get("/.well-known/assetlinks.json").json()
     assert links[0]["target"]["package_name"] == "com.arianna.app"
     assert len(links[0]["target"]["sha256_cert_fingerprints"][0]) == 95
+
+
+def test_preferences_saved_in_account(client):
+    headers = login(client, "prefs@example.com")
+    assert client.get("/api/me/preferences", headers=headers).json() == {"home": None, "accent": None}
+
+    home = {"order": ["SHOPPING", "GARAGE", "REMINDERS", "TASKS"], "hidden": ["TASKS"], "configured": True}
+    saved = client.put("/api/me/preferences", json={"home": home}, headers=headers).json()
+    assert saved == {"home": home, "accent": None}
+
+    # Solo el color: el inicio queda como estaba.
+    saved = client.put("/api/me/preferences", json={"accent": "BLUE"}, headers=headers).json()
+    assert saved == {"home": home, "accent": "BLUE"}
+    assert client.get("/api/me/preferences", headers=headers).json() == saved

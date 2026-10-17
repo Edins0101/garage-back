@@ -38,6 +38,27 @@ class UserOut(ApiModel):
     email: str
 
 
+class HomePrefsIn(ApiModel):
+    """Cómo quiere el usuario su inicio (secciones en orden, ocultas y si ya eligió)."""
+
+    order: list[str] = Field(default_factory=list, max_length=20)
+    hidden: list[str] = Field(default_factory=list, max_length=20)
+    configured: bool = False
+
+
+class PreferencesIn(ApiModel):
+    """Preferencias de la app guardadas en la cuenta. Lo que no se manda queda como estaba."""
+
+    home: HomePrefsIn | None = None
+    #: Color principal (VIOLET, BLUE…).
+    accent: str | None = Field(default=None, max_length=20)
+
+
+class PreferencesOut(ApiModel):
+    home: HomePrefsIn | None = None
+    accent: str | None = None
+
+
 class GoogleLoginIn(ApiModel):
     id_token: str
 
