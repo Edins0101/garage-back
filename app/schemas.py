@@ -185,6 +185,8 @@ class GarageSummaryOut(ApiModel):
     total: float
     paid: float
     pending: float
+    #: Último día pagado por completo: hasta esa fecha los días quedan cerrados (no se editan).
+    paid_until: dt.date | None = None
 
 
 # ---------------------------------------------------------------- listas

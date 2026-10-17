@@ -119,3 +119,37 @@ def test_share_tracker_with_roles(client, clock):
     assert client.get("/api/trackers", headers=ninera).json() == []
     # Las rutas viejas de la pareja no tocan el contador de Ana.
     assert client.get("/api/garage-days", headers=pareja).json() == []
+
+
+def test_payments_close_the_oldest_days(client, clock):
+    ana = login(client, "ana@correo.com", "Ana")
+    nanny = client.post("/api/trackers", json={"name": "Niñera", "dailyRate": "25"}, headers=ana).json()
+    base = f"/api/trackers/{nanny['id']}"
+    for day in ("2026-10-12", "2026-10-13", "2026-10-14"):
+        client.put(f"{base}/days/{day}", json={}, headers=ana)
+    assert client.get(f"{base}/summary", headers=ana).json()["paidUntil"] is None
+
+    # $60 cubre el 12 y el 13 ($50); el 14 queda a medias y sigue abierto.
+    payment = client.post(f"{base}/payments", json={"date": "2026-10-14", "amount": "60"}, headers=ana).json()
+    assert client.get(f"{base}/summary", headers=ana).json()["paidUntil"] == "2026-10-13"
+    assert client.get("/api/trackers", headers=ana).json()[0]["summary"]["paidUntil"] == "2026-10-13"
+
+    for method, path, body in (
+        ("DELETE", f"{base}/days/2026-10-12", None),
+        ("PUT", f"{base}/days/2026-10-13", {"note": "cambio"}),
+        ("PUT", f"{base}/days/2026-10-11", {}),  # tampoco se marcan días dentro de lo pagado
+        ("POST", f"{base}/days/2026-10-13/charges", {"description": "Taxi", "amount": "3"}),
+    ):
+        response = client.request(method, path, json=body, headers=ana)
+        assert response.status_code == 409, (method, path)
+        assert "ya está pagado" in response.json()["message"]
+
+    # El día a medias y los siguientes se editan normal.
+    assert client.put(f"{base}/days/2026-10-14", json={"note": "medio día"}, headers=ana).status_code == 200
+    charge = client.post(f"{base}/days/2026-10-15/charges", json={"description": "Taxi", "amount": "3"}, headers=ana).json()
+    assert client.delete(f"{base}/charges/{charge['id']}", headers=ana).status_code == 204
+
+    # Borrar el pago vuelve a abrir los días.
+    client.delete(f"{base}/payments/{payment['id']}", headers=ana)
+    assert client.get(f"{base}/summary", headers=ana).json()["paidUntil"] is None
+    assert client.delete(f"{base}/days/2026-10-12", headers=ana).status_code == 204

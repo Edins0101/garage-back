@@ -12,7 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from sqlalchemy import delete, or_, select, update
 
 from app.auth import CurrentUser, Db
-from app.garage import backfill_auto_days, default_tracker, summary, today
+from app.garage import backfill_auto_days, default_tracker, paid_until, summary, today
 from app.models import GarageCharge, GarageDay, GroupShare, Payment, Tracker, TrackerMember, User
 from app.permissions import Access, access_level, get_list, shared_by_groups
 from app.push import device_tokens, recipients, send_push, tracker_payment_push
@@ -50,11 +50,11 @@ def _tracker_access(required: Access):
         tracker = db.get(Tracker, tracker_id)
         level = access_level(tracker, user) if tracker else Access.NONE
         if level == Access.NONE:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "El contador no existe")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "La cuenta no existe")
         if level < required:
             message = {
-                Access.EDITOR: "Solo puedes ver este contador, no editarlo",
-                Access.OWNER: "Solo el dueño del contador puede hacer esto",
+                Access.EDITOR: "Solo puedes ver esta cuenta, no editarla",
+                Access.OWNER: "Solo el dueño de la cuenta puede hacer esto",
             }[required]
             raise HTTPException(status.HTTP_403_FORBIDDEN, message)
         return tracker
@@ -140,8 +140,18 @@ def _list_days(db, tracker: Tracker, from_: dt.date | None, to: dt.date | None):
     return db.scalars(query.order_by(GarageDay.date)).all()
 
 
+def _check_open(db, tracker: Tracker, day: dt.date) -> None:
+    """409 si el día ya está cubierto por los pagos (hay que borrar el pago para cambiarlo)."""
+    closed = paid_until(db, tracker)
+    if closed is not None and day <= closed:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Ese día ya está pagado (cubierto hasta el {closed:%d/%m/%Y}): no se puede cambiar"
+        )
+
+
 def _set_day(db, tracker: Tracker, day: dt.date, body: DayIn) -> GarageDay:
     """Crea o actualiza el día. Al crearlo toma la tarifa vigente si no se envía otra."""
+    _check_open(db, tracker, day)
     garage_day = _get_day(db, tracker, day) or _new_day(db, tracker, day)
     if "note" in body.model_fields_set:
         garage_day.note = (body.note or "").strip() or None
@@ -153,6 +163,7 @@ def _set_day(db, tracker: Tracker, day: dt.date, body: DayIn) -> GarageDay:
 
 
 def _remove_day(db, tracker: Tracker, day: dt.date) -> Response:
+    _check_open(db, tracker, day)
     garage_day = _get_day(db, tracker, day)
     if garage_day is not None:
         db.delete(garage_day)  # borra también sus cargos
@@ -162,6 +173,7 @@ def _remove_day(db, tracker: Tracker, day: dt.date) -> Response:
 
 def _add_charge(db, tracker: Tracker, day: dt.date, body: ChargeIn) -> GarageCharge:
     """Agrega un cargo al día. Si el día no estaba marcado, lo marca."""
+    _check_open(db, tracker, day)
     garage_day = _get_day(db, tracker, day)
     if garage_day is None:
         garage_day = _new_day(db, tracker, day)
@@ -174,6 +186,10 @@ def _add_charge(db, tracker: Tracker, day: dt.date, body: ChargeIn) -> GarageCha
 
 
 def _remove_charge(db, tracker_ids, charge_id: str) -> Response:
+    charge = db.get(GarageCharge, charge_id)
+    allowed = set(tracker_ids) if isinstance(tracker_ids, list) else set(db.scalars(tracker_ids))
+    if charge is not None and charge.day.tracker_id in allowed:
+        _check_open(db, db.get(Tracker, charge.day.tracker_id), charge.day.date)
     days = select(GarageDay.id).where(GarageDay.tracker_id.in_(tracker_ids))
     result = db.execute(delete(GarageCharge).where(GarageCharge.id == charge_id, GarageCharge.day_id.in_(days)))
     if result.rowcount == 0:

@@ -56,6 +56,30 @@ def backfill_auto_days(db: Session, tracker: Tracker) -> None:
     db.commit()
 
 
+def paid_until(db: Session, tracker: Tracker) -> dt.date | None:
+    """Último día pagado por completo. Los pagos cubren primero los días más antiguos.
+
+    Todo lo que queda hasta esa fecha (incluida) está cerrado: no se marcan, quitan ni editan días.
+    Un día cubierto solo en parte sigue pendiente. Los días sin costo no cierran nada por sí solos.
+    """
+    paid = Decimal(str(db.scalar(
+        select(func.coalesce(func.sum(Payment.amount), ZERO)).where(Payment.tracker_id == tracker.id)
+    )))
+    if paid <= ZERO:
+        return None
+    days = db.scalars(select(GarageDay).where(GarageDay.tracker_id == tracker.id).order_by(GarageDay.date)).all()
+    covered, last = ZERO, None
+    for day in days:
+        cost = (day.rate or ZERO) + sum((c.amount for c in day.charges), ZERO)
+        if cost <= ZERO:
+            continue
+        if covered + cost > paid:
+            break
+        covered += cost
+        last = day.date
+    return last
+
+
 def summary(db: Session, tracker: Tracker, until: dt.date) -> dict:
     """Cuenta hasta `until` (incluido). Los días futuros marcados no cuentan todavía."""
     days_query = select(
@@ -88,4 +112,5 @@ def summary(db: Session, tracker: Tracker, until: dt.date) -> dict:
         "total": float(total),
         "paid": float(paid),
         "pending": float(total - paid),
+        "paid_until": paid_until(db, tracker),
     }

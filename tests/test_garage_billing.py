@@ -65,6 +65,8 @@ def test_charges_and_summary_with_payments(client, clock):
         "total": 19.5,
         "paid": 10.0,
         "pending": 9.5,
+        # $10 alcanzan para el 12 ($5); el 13 ($9.50) queda a medias.
+        "paidUntil": "2026-10-12",
     }
 
     # Quitar un cargo y un pago.
