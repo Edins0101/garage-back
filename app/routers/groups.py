@@ -161,7 +161,7 @@ def create_group_invite(group_id: str, user: CurrentUser, db: Db):
 _TARGETS = {
     "lists": (Checklist, "list_id", "La lista no existe"),
     "spaces": (Space, "space_id", "La sección no existe"),
-    "trackers": (Tracker, "tracker_id", "La cuenta no existe"),
+    "trackers": (Tracker, "tracker_id", "El calendario no existe"),
 }
 
 

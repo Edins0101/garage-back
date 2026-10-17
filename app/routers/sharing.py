@@ -186,9 +186,9 @@ def _get_tracker(db, tracker_id: str, user: User, required: Access) -> Tracker:
     tracker = db.get(Tracker, tracker_id)
     level = access_level(tracker, user) if tracker else Access.NONE
     if level == Access.NONE:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "La cuenta no existe")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El calendario no existe")
     if level < required:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo el dueño de la cuenta puede hacer esto")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo el dueño del calendario puede hacer esto")
     return tracker
 
 
@@ -223,7 +223,7 @@ def remove_from_tracker(tracker_id: str, email: str, user: CurrentUser, db: Db):
     email = email.lower()
     # El dueño puede quitar a cualquiera; un miembro solo puede salirse él mismo.
     if access_level(tracker, user) != Access.OWNER and email != user.email:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo el dueño de la cuenta puede hacer esto")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo el dueño del calendario puede hacer esto")
     for member in [m for m in tracker.members if m.email == email]:
         tracker.members.remove(member)
     db.commit()

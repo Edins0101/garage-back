@@ -50,11 +50,11 @@ def _tracker_access(required: Access):
         tracker = db.get(Tracker, tracker_id)
         level = access_level(tracker, user) if tracker else Access.NONE
         if level == Access.NONE:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "La cuenta no existe")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "El calendario no existe")
         if level < required:
             message = {
-                Access.EDITOR: "Solo puedes ver esta cuenta, no editarla",
-                Access.OWNER: "Solo el dueño de la cuenta puede hacer esto",
+                Access.EDITOR: "Solo puedes ver este calendario, no editarlo",
+                Access.OWNER: "Solo el dueño del calendario puede hacer esto",
             }[required]
             raise HTTPException(status.HTTP_403_FORBIDDEN, message)
         return tracker
