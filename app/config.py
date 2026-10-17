@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     email_from_name: str = "Arianna"
     #: Base de los enlaces de invitación que se comparten. Tiene que ser https para que
     #: WhatsApp y los demás chats lo vuelvan tocable (ver app/routers/web.py).
-    invite_url_base: str = "https://garage-back-me4r.onrender.com/join/"
+    invite_url_base: str = "https://arianna-back.onrender.com/join/"
     #: Paquete y huellas SHA-256 de la firma del APK para /.well-known/assetlinks.json (App Links).
     android_package: str = "com.arianna.app"
     android_cert_sha256: str = "F5:D4:90:EA:DE:AC:49:D1:58:DC:A9:FC:02:18:18:82:15:FD:80:E0:9C:93:39:0B:8D:58:0D:59:AB:15:5E:85"
